@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import bcrypt
 from jose import jwt
@@ -22,22 +23,25 @@ def verify_password(plain: str, hashed: str) -> bool:
 def create_access_token(user_id: str, username: str) -> str:
     now = datetime.now(timezone.utc)
     expire = now + timedelta(hours=TOKEN_EXPIRE_HOURS)
-    payload = {
+    payload: dict[str, Any] = {
         "sub": user_id,
         "username": username,
         "exp": expire,
         "iat": now,
         "iss": ISSUER,
     }
-    return jwt.encode(payload, settings.secret_key, algorithm=ALGORITHM)
+    return str(jwt.encode(payload, settings.secret_key, algorithm=ALGORITHM))
 
 
-def decode_token(token: str) -> dict:
+def decode_token(token: str) -> dict[str, Any]:
     # JWTError (and subclasses) are intentionally allowed to propagate —
     # callers (e.g. get_current_user dependency) handle them.
-    return jwt.decode(
+    # issuer= verifies the "iss" claim value matches ISSUER.
+    result: dict[str, Any] = jwt.decode(
         token,
         settings.secret_key,
         algorithms=[ALGORITHM],
+        issuer=ISSUER,
         options={"require": ["sub", "exp", "iat", "iss"]},
     )
+    return result

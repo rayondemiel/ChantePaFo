@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from jose import jwt
+from jose import JWTError, jwt
 
 from app.auth.service import (
     ALGORITHM,
@@ -243,3 +243,17 @@ async def test_get_current_user_rejects_token_for_deleted_user(client):
         headers={"Authorization": f"Bearer {ghost_token}"},
     )
     assert resp.status_code == 401
+
+
+def test_decode_token_rejects_wrong_issuer():
+    """A token signed with the correct key but a different issuer is rejected."""
+    bad_payload = {
+        "sub": "u1",
+        "username": "x",
+        "iat": datetime.now(timezone.utc),
+        "iss": "evil-issuer",
+        "exp": datetime.now(timezone.utc) + timedelta(hours=1),
+    }
+    bad_token = jwt.encode(bad_payload, settings.secret_key, algorithm=ALGORITHM)
+    with pytest.raises(JWTError):
+        decode_token(bad_token)

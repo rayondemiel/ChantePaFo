@@ -114,27 +114,29 @@ async def test_join_room_endpoint(authed_client, client, fake_redis):
 
         app.dependency_overrides[get_db] = override_db2
         app.dependency_overrides[get_redis] = override_redis2
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as bob_client:
-            reg = await bob_client.post(
-                "/auth/register",
-                json={"username": "bob", "email": "bob@example.com", "password": "password1"},
-            )
-            assert reg.status_code == 201
-            bob_token = reg.json()["token"]
-            bob_client.headers["Authorization"] = f"Bearer {bob_token}"
+        try:
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as bob_client:
+                reg = await bob_client.post(
+                    "/auth/register",
+                    json={"username": "bob", "email": "bob@example.com", "password": "password1"},
+                )
+                assert reg.status_code == 201
+                bob_token = reg.json()["token"]
+                bob_client.headers["Authorization"] = f"Bearer {bob_token}"
 
-            resp = await bob_client.post(f"/rooms/{code}/join", json={"player_name": "Bob"})
-            assert resp.status_code == 200
-            data = resp.json()
-            assert "room" in data
-            # host_id must not leak
-            assert "host_id" not in data
-            assert "host_id" not in data["room"]
-            names = [p["name"] for p in data["room"]["players"]]
-            assert "Bob" in names
+                resp = await bob_client.post(f"/rooms/{code}/join", json={"player_name": "Bob"})
+                assert resp.status_code == 200
+                data = resp.json()
+                assert "room" in data
+                # host_id must not leak
+                assert "host_id" not in data
+                assert "host_id" not in data["room"]
+                names = [p["name"] for p in data["room"]["players"]]
+                assert "Bob" in names
+        finally:
+            app.dependency_overrides.clear()
 
-    app.dependency_overrides.clear()
     await engine2.dispose()
 
 

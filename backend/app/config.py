@@ -7,6 +7,7 @@ _FORBIDDEN_SECRETS = {
     "change-me",
     "changeme",
     "secret",
+    "replace-me-with-32-bytes-hex-from-secrets-token-hex",
 }
 
 _FORBIDDEN_METRICS_PASSWORDS = {
