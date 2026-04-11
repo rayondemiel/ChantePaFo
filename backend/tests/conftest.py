@@ -55,3 +55,17 @@ async def client(db_session, fake_redis):
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+async def authed_client(client):
+    resp = await client.post(
+        "/auth/register",
+        json={"username": "alice", "email": "alice@example.com", "password": "password1"},
+    )
+    assert resp.status_code == 201
+    token = resp.json()["token"]
+    client.headers = dict(client.headers)
+    client.headers["Authorization"] = f"Bearer {token}"
+    yield client
+    client.headers.pop("Authorization", None)

@@ -1,11 +1,17 @@
+from datetime import datetime, timedelta, timezone
+
 import pytest
+from jose import jwt
 
 from app.auth.service import (
+    ALGORITHM,
+    ISSUER,
     create_access_token,
     decode_token,
     hash_password,
     verify_password,
 )
+from app.config import settings
 
 
 def test_hash_and_verify_password():
@@ -150,3 +156,90 @@ async def test_register_rejects_oversize_password(client):
         },
     )
     assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Token claims
+# ---------------------------------------------------------------------------
+
+
+def test_token_includes_iat_and_iss():
+    token = create_access_token(user_id="u1", username="testuser")
+    payload = decode_token(token)
+    assert "iat" in payload
+    assert payload["iss"] == ISSUER
+
+
+# ---------------------------------------------------------------------------
+# get_current_user dependency boundary tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_current_user_rejects_missing_header(client):
+    """Any protected endpoint returns 401 when Authorization header is absent."""
+    resp = await client.post("/rooms", json={"host_name": "Alice"})
+    assert resp.status_code == 401
+    assert resp.headers.get("WWW-Authenticate") == "Bearer"
+
+
+@pytest.mark.asyncio
+async def test_get_current_user_rejects_invalid_token(client):
+    """A malformed JWT token returns 401."""
+    resp = await client.post(
+        "/rooms",
+        json={"host_name": "Alice"},
+        headers={"Authorization": "Bearer this.is.not.a.valid.jwt"},
+    )
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_get_current_user_rejects_expired_token(client):
+    """A well-formed but expired token returns 401."""
+    expired_payload = {
+        "sub": "user-expired",
+        "username": "ghost",
+        "exp": datetime.now(timezone.utc) - timedelta(hours=1),
+        "iat": datetime.now(timezone.utc) - timedelta(hours=2),
+        "iss": ISSUER,
+    }
+    expired_token = jwt.encode(expired_payload, settings.secret_key, algorithm=ALGORITHM)
+    resp = await client.post(
+        "/rooms",
+        json={"host_name": "Alice"},
+        headers={"Authorization": f"Bearer {expired_token}"},
+    )
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_get_current_user_rejects_token_without_sub(client):
+    """Token missing the 'sub' claim is rejected as invalid payload."""
+    bad_payload = {
+        "username": "ghost",
+        "exp": datetime.now(timezone.utc) + timedelta(hours=1),
+        "iat": datetime.now(timezone.utc),
+        "iss": ISSUER,
+    }
+    # Encode without the "require" validation (decode_token will reject on decode)
+    bad_token = jwt.encode(bad_payload, settings.secret_key, algorithm=ALGORITHM)
+    resp = await client.post(
+        "/rooms",
+        json={"host_name": "Alice"},
+        headers={"Authorization": f"Bearer {bad_token}"},
+    )
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_get_current_user_rejects_token_for_deleted_user(client):
+    """A valid token whose user_id doesn't exist in the DB is rejected."""
+    # Token for a user that was never registered
+    ghost_token = create_access_token(user_id="nonexistent-user-id", username="ghost")
+    resp = await client.post(
+        "/rooms",
+        json={"host_name": "Alice"},
+        headers={"Authorization": f"Bearer {ghost_token}"},
+    )
+    assert resp.status_code == 401

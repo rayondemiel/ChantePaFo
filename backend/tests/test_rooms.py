@@ -70,3 +70,49 @@ async def test_update_room_settings(room_service):
     )
     assert updated["settings"]["game_mode"] == "blindtest"
     assert updated["settings"]["genres"] == ["rock", "pop"]
+
+
+@pytest.mark.asyncio
+async def test_update_settings_nonexistent_room(room_service):
+    result = await room_service.update_settings("FAKE99", host_id="host-1", settings={})
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_update_settings_wrong_host(room_service):
+    room = await room_service.create_room(host_id="host-1", host_name="Alice")
+    result = await room_service.update_settings(
+        room["code"], host_id="not-the-host", settings={"num_rounds": 5}
+    )
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_set_status(room_service):
+    room = await room_service.create_room(host_id="host-1", host_name="Alice")
+    updated = await room_service.set_status(room["code"], "playing")
+    assert updated["status"] == "playing"
+
+
+@pytest.mark.asyncio
+async def test_set_status_nonexistent_room(room_service):
+    result = await room_service.set_status("FAKE99", "playing")
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_leave_room_when_last_player(room_service):
+    """When the last player leaves, the room is deleted and status becomes 'closed'."""
+    room = await room_service.create_room(host_id="host-1", host_name="Alice")
+    result = await room_service.leave_room(room["code"], player_id="host-1")
+    assert result["status"] == "closed"
+    assert result["players"] == []
+    # Room should be gone from Redis
+    gone = await room_service.get_room(room["code"])
+    assert gone is None
+
+
+@pytest.mark.asyncio
+async def test_leave_room_nonexistent(room_service):
+    result = await room_service.leave_room("FAKE99", player_id="p1")
+    assert result is None
