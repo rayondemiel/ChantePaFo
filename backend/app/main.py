@@ -10,6 +10,7 @@ from app.config import settings
 from app.database import create_tables
 from app import models  # noqa: F401
 from app.auth.router import router as auth_router
+from app.rooms.router import router as rooms_router
 
 
 @asynccontextmanager
@@ -35,6 +36,7 @@ os.makedirs(settings.upload_dir, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=settings.upload_dir), name="uploads")
 
 app.include_router(auth_router)
+app.include_router(rooms_router)
 
 socket_app = socketio.ASGIApp(sio, other_asgi_app=app)
 
