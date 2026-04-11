@@ -44,3 +44,8 @@ socket_app = socketio.ASGIApp(sio, other_asgi_app=app)
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+from app.sockets.handlers import register_handlers  # noqa: E402
+
+register_handlers()
