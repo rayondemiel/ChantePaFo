@@ -1,0 +1,292 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [dev, main]
+    paths-ignore: ['**/*.md', 'docs/**', 'LICENSE*', '.gitignore']
+  push:
+    branches: [dev, main]
+    paths-ignore: ['**/*.md', 'docs/**', 'LICENSE*', '.gitignore']
+  workflow_call:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v8
+        with:
+          version: "latest"
+      - working-directory: backend
+        run: uv sync --all-extras
+      - name: Ruff lint
+        working-directory: backend
+        run: uv run ruff check .
+      - name: Ruff format check
+        working-directory: backend
+        run: uv run ruff format --check .
+
+  type-check-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v8
+        with:
+          version: "latest"
+      - working-directory: backend
+        run: uv sync --all-extras
+      - name: mypy
+        working-directory: backend
+        run: uv run mypy app/
+
+  test-backend:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v8
+        with:
+          version: "latest"
+      - working-directory: backend
+        run: uv sync --all-extras
+      - name: Pytest + coverage + junit
+        working-directory: backend
+        run: |
+          uv run pytest tests/ -v --tb=short \
+            --cov=app \
+            --cov-report=xml \
+            --cov-report=html \
+            --cov-report=term-missing \
+            --cov-fail-under=70 \
+            --junitxml=test-results.xml
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: backend/coverage.xml
+          flags: backend
+          fail_ci_if_error: false
+      - name: Upload backend coverage XML (for SonarCloud)
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-backend-xml
+          path: backend/coverage.xml
+          retention-days: 1
+      - name: Upload backend HTML coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-backend-html
+          path: backend/htmlcov/
+          retention-days: 14
+      - name: Upload backend JUnit report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-backend
+          path: backend/test-results.xml
+          retention-days: 14
+      - name: Publish backend test report
+        if: always()
+        uses: dorny/test-reporter@v3
+        with:
+          name: Backend tests
+          path: backend/test-results.xml
+          reporter: java-junit
+          fail-on-error: false
+
+  security-audit-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v8
+        with:
+          version: "latest"
+      - working-directory: backend
+        run: uv sync --all-extras
+      - name: pip-audit
+        working-directory: backend
+        run: uv run --with pip-audit pip-audit --strict
+      - name: bandit
+        working-directory: backend
+        run: uv run bandit -r app/ -c pyproject.toml
+
+  lint-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - working-directory: frontend
+        run: npm ci
+      - name: ESLint
+        working-directory: frontend
+        run: npx eslint . --max-warnings 0
+      - name: Prettier check
+        working-directory: frontend
+        run: npx prettier --check "src/**/*.{ts,vue,css,json}"
+
+  type-check-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - working-directory: frontend
+        run: npm ci
+      - name: vue-tsc
+        working-directory: frontend
+        run: npx vue-tsc --noEmit
+
+  test-frontend:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - working-directory: frontend
+        run: npm ci
+      - name: Vitest with coverage + junit
+        working-directory: frontend
+        run: npx vitest run --coverage --reporter=default --reporter=junit --outputFile=test-results.xml
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: frontend/coverage/lcov.info
+          flags: frontend
+          fail_ci_if_error: false
+      - name: Upload frontend coverage lcov (for SonarCloud)
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-frontend-lcov
+          path: frontend/coverage/lcov.info
+          retention-days: 1
+      - name: Upload frontend HTML coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-frontend-html
+          path: frontend/coverage/
+          retention-days: 14
+      - name: Upload frontend JUnit report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-frontend
+          path: frontend/test-results.xml
+          retention-days: 14
+      - name: Publish frontend test report
+        if: always()
+        uses: dorny/test-reporter@v3
+        with:
+          name: Frontend tests
+          path: frontend/test-results.xml
+          reporter: java-junit
+          fail-on-error: false
+
+  build-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - working-directory: frontend
+        run: npm ci
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+
+  security-audit-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - working-directory: frontend
+        run: npm ci
+      - name: npm audit
+        working-directory: frontend
+        run: npm audit --audit-level=high
+
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  sonarcloud:
+    needs: [test-backend, test-frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Download backend coverage
+        uses: actions/download-artifact@v8
+        with:
+          name: coverage-backend-xml
+          path: backend/
+      - name: Download frontend coverage
+        uses: actions/download-artifact@v8
+        with:
+          name: coverage-frontend-lcov
+          path: frontend/coverage/
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarqube-scan-action@v7.1.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  ci-gate:
+    name: CI gate
+    needs:
+      - lint-backend
+      - type-check-backend
+      - test-backend
+      - security-audit-backend
+      - lint-frontend
+      - type-check-frontend
+      - test-frontend
+      - build-frontend
+      - security-audit-frontend
+      - gitleaks
+      - sonarcloud
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify all required jobs passed
+        run: |
+          if [ "${{ contains(needs.*.result, 'failure') }}" = "true" ] || \
+             [ "${{ contains(needs.*.result, 'cancelled') }}" = "true" ]; then
+            echo "::error::One or more required jobs did not succeed."
+            exit 1
+          fi
+          echo "All required jobs passed."
