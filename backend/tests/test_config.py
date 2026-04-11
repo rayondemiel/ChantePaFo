@@ -32,3 +32,12 @@ def test_secret_key_rejects_known_placeholders():
                 secret_key=placeholder,
                 metrics_password="a-valid-long-enough-metrics-password",
             )
+
+
+def test_cors_validator_rejects_wildcard():
+    with pytest.raises(ValidationError):
+        Settings(
+            secret_key="a" * 64,
+            metrics_password="a-valid-long-enough-metrics-password",
+            cors_origins=["*"],
+        )

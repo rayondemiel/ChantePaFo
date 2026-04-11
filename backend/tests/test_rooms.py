@@ -139,3 +139,28 @@ async def test_leave_room_non_host_keeps_host(room_service):
     await room_service.join_room(room["code"], player_id="p2", player_name="Bob")
     updated = await room_service.leave_room(room["code"], player_id="p2")
     assert updated["host_id"] == "host-1"
+
+
+@pytest.mark.asyncio
+async def test_update_settings_partial_merge(room_service):
+    room = await room_service.create_room(host_id="h1", host_name="Alice")
+    updated = await room_service.update_settings(
+        room["code"],
+        host_id="h1",
+        settings={"num_rounds": 15},  # only num_rounds
+    )
+    assert updated is not None
+    assert updated["settings"]["num_rounds"] == 15
+    assert updated["settings"]["game_mode"] == "blindtest"  # unchanged
+
+
+@pytest.mark.asyncio
+async def test_update_settings_rejects_extra_keys_at_service_level(room_service):
+    # The service itself doesn't validate extra keys — the socket handler does via
+    # PartialRoomSettings. The service still merges whatever dict it receives.
+    room = await room_service.create_room(host_id="h1", host_name="Alice")
+    updated = await room_service.update_settings(
+        room["code"], host_id="h1", settings={"num_rounds": 12}
+    )
+    assert updated is not None
+    assert updated["settings"]["num_rounds"] == 12
