@@ -2,6 +2,7 @@ from typing import Any
 
 import socketio
 from jose import JWTError
+from pydantic import ValidationError
 from sqlalchemy import select
 
 from app.auth.service import decode_token
@@ -11,7 +12,15 @@ from app.logging_config import get_logger
 from app.main import sio
 from app.metrics import SOCKETIO_CONNECTIONS_ACTIVE, SOCKETIO_EVENTS_TOTAL
 from app.models import User
+from app.rooms.schemas import PartialRoomSettings
 from app.rooms.service import RoomService
+from app.sockets.payloads import (
+    JoinRoomPayload,
+    ReactionPayload,
+    SoundboardPayload,
+    StartGamePayload,
+    UpdateSettingsPayload,
+)
 
 logger = get_logger(__name__)
 
@@ -79,108 +88,166 @@ def register_handlers() -> None:
     @sio.event
     async def join_room(sid, data):
         SOCKETIO_EVENTS_TOTAL.labels(event="join_room").inc()
-        code = data["code"]
-        session = await sio.get_session(sid)
-        user_id = session["user_id"]
-        redis = get_redis()
-        svc = RoomService(redis)
-        room = await svc.get_room(code)
-        if not room:
-            logger.warning("join_room failed: unknown room sid=%s code=%s", sid, code)
-            await sio.emit("error", {"message": "Room not found"}, to=sid)
+        try:
+            payload = JoinRoomPayload.model_validate(data)
+        except ValidationError:
+            await sio.emit("error", {"message": "Invalid join_room payload"}, to=sid)
             return
 
-        await sio.enter_room(sid, code)
-        await redis.set(f"player_room:{sid}", code, ex=1800)
-        logger.info("player joined room sid=%s room=%s user_id=%s", sid, code, user_id)
-        await sio.emit("room_updated", _public_room(room), room=code)
+        session = await sio.get_session(sid)
+        user_id = session["user_id"]
+        username = session.get("username") or user_id
+
+        redis = get_redis()
+        svc = RoomService(redis)
+        room = await svc.join_room(payload.code, player_id=user_id, player_name=username)
+        if not room:
+            logger.warning(
+                "join_room failed: unknown or full room sid=%s code=%s", sid, payload.code
+            )
+            await sio.emit("error", {"message": "Room not found or full"}, to=sid)
+            return
+
+        await sio.enter_room(sid, payload.code)
+        await redis.set(f"player_room:{sid}", payload.code, ex=1800)
+        logger.info("player joined room sid=%s room=%s user_id=%s", sid, payload.code, user_id)
+        await sio.emit("room_updated", _public_room(room), room=payload.code)
 
     @sio.event
     async def update_settings(sid, data):
         SOCKETIO_EVENTS_TOTAL.labels(event="update_settings").inc()
-        code = data["code"]
-        settings = data["settings"]
+        try:
+            payload = UpdateSettingsPayload.model_validate(data)
+        except ValidationError:
+            await sio.emit("error", {"message": "Invalid update_settings payload"}, to=sid)
+            return
+
         session = await sio.get_session(sid)
         user_id = session["user_id"]
+
+        if payload.code not in sio.rooms(sid):
+            await sio.emit("error", {"message": "Not in room"}, to=sid)
+            return
+
+        try:
+            partial = PartialRoomSettings.model_validate(payload.settings)
+        except ValidationError:
+            await sio.emit("error", {"message": "Invalid settings payload"}, to=sid)
+            return
+
         redis = get_redis()
         svc = RoomService(redis)
-        room = await svc.get_room(code)
+        room = await svc.get_room(payload.code)
         if room is None:
-            logger.warning("update_settings rejected: room not found code=%s", code)
+            logger.warning("update_settings rejected: room not found code=%s", payload.code)
             await sio.emit("error", {"message": "Room not found"}, to=sid)
             return
         if room["host_id"] != user_id:
-            logger.warning("update_settings rejected: not host room=%s user=%s", code, user_id)
+            logger.warning(
+                "update_settings rejected: not host room=%s user=%s", payload.code, user_id
+            )
             await sio.emit("error", {"message": "Only the host can update settings"}, to=sid)
             return
-        room = await svc.update_settings(code, user_id, settings)
+        room = await svc.update_settings(
+            payload.code, user_id, partial.model_dump(exclude_none=True)
+        )
         if room:
-            logger.info("settings updated room=%s user=%s", code, user_id)
-            await sio.emit("room_updated", _public_room(room), room=code)
+            logger.info("settings updated room=%s user=%s", payload.code, user_id)
+            await sio.emit("room_updated", _public_room(room), room=payload.code)
 
     @sio.event
     async def start_game(sid, data):
         SOCKETIO_EVENTS_TOTAL.labels(event="start_game").inc()
-        code = data["code"]
+        try:
+            payload = StartGamePayload.model_validate(data)
+        except ValidationError:
+            await sio.emit("error", {"message": "Invalid start_game payload"}, to=sid)
+            return
+
         session = await sio.get_session(sid)
         user_id = session["user_id"]
+
+        if payload.code not in sio.rooms(sid):
+            await sio.emit("error", {"message": "Not in room"}, to=sid)
+            return
+
         redis = get_redis()
         svc = RoomService(redis)
-        room = await svc.get_room(code)
+        room = await svc.get_room(payload.code)
         if not room:
             await sio.emit("error", {"message": "Room not found"}, to=sid)
             return
         if room["host_id"] != user_id:
             logger.warning(
-                "start_game rejected: not host sid=%s room=%s user=%s", sid, code, user_id
+                "start_game rejected: not host sid=%s room=%s user=%s", sid, payload.code, user_id
             )
             await sio.emit("error", {"message": "Only the host can start the game"}, to=sid)
             return
-        room = await svc.set_status(code, "playing")
+        room = await svc.set_status(payload.code, "playing")
         if room:
-            logger.info("game started room=%s", code)
-            await sio.emit("game_started", _public_room(room), room=code)
+            logger.info("game started room=%s", payload.code)
+            await sio.emit("game_started", _public_room(room), room=payload.code)
 
     @sio.event
     async def reaction(sid, data):
         SOCKETIO_EVENTS_TOTAL.labels(event="reaction").inc()
-        code = data["code"]
+        try:
+            payload = ReactionPayload.model_validate(data)
+        except ValidationError:
+            await sio.emit("error", {"message": "Invalid reaction payload"}, to=sid)
+            return
+
         session = await sio.get_session(sid)
         user_id = session["user_id"]
         username = session["username"]
+
+        if payload.code not in sio.rooms(sid):
+            await sio.emit("error", {"message": "Not in room"}, to=sid)
+            return
+
         logger.debug(
             "reaction room=%s player=%s emoji=%s",
-            code,
+            payload.code,
             username,
-            data.get("emoji"),
+            payload.emoji,
         )
         await sio.emit(
             "reaction_received",
             {
                 "player_id": user_id,
                 "player_name": username,
-                "emoji": data["emoji"],
+                "emoji": payload.emoji,
             },
-            room=code,
+            room=payload.code,
         )
 
     @sio.event
     async def soundboard(sid, data):
         SOCKETIO_EVENTS_TOTAL.labels(event="soundboard").inc()
-        code = data["code"]
+        try:
+            payload = SoundboardPayload.model_validate(data)
+        except ValidationError:
+            await sio.emit("error", {"message": "Invalid soundboard payload"}, to=sid)
+            return
+
         session = await sio.get_session(sid)
         username = session["username"]
+
+        if payload.code not in sio.rooms(sid):
+            await sio.emit("error", {"message": "Not in room"}, to=sid)
+            return
+
         logger.debug(
             "soundboard room=%s player=%s sound=%s",
-            code,
+            payload.code,
             username,
-            data.get("sound"),
+            payload.sound,
         )
         await sio.emit(
             "soundboard_played",
             {
                 "player_name": username,
-                "sound": data["sound"],
+                "sound": payload.sound,
             },
-            room=code,
+            room=payload.code,
         )
