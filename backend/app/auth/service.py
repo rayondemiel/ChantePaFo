@@ -6,7 +6,8 @@ from jose import jwt
 from app.config import settings
 
 ALGORITHM = "HS256"
-TOKEN_EXPIRE_HOURS = 72
+TOKEN_EXPIRE_HOURS = 8
+ISSUER = "chantepafo"
 
 
 def hash_password(password: str) -> str:
@@ -19,10 +20,24 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 def create_access_token(user_id: str, username: str) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(hours=TOKEN_EXPIRE_HOURS)
-    payload = {"sub": user_id, "username": username, "exp": expire}
+    now = datetime.now(timezone.utc)
+    expire = now + timedelta(hours=TOKEN_EXPIRE_HOURS)
+    payload = {
+        "sub": user_id,
+        "username": username,
+        "exp": expire,
+        "iat": now,
+        "iss": ISSUER,
+    }
     return jwt.encode(payload, settings.secret_key, algorithm=ALGORITHM)
 
 
 def decode_token(token: str) -> dict:
-    return jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM])
+    # JWTError (and subclasses) are intentionally allowed to propagate —
+    # callers (e.g. get_current_user dependency) handle them.
+    return jwt.decode(
+        token,
+        settings.secret_key,
+        algorithms=[ALGORITHM],
+        options={"require": ["sub", "exp", "iat", "iss"]},
+    )
