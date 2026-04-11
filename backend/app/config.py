@@ -9,11 +9,23 @@ _FORBIDDEN_SECRETS = {
     "secret",
 }
 
+_FORBIDDEN_METRICS_PASSWORDS = {
+    "",
+    "metrics",
+    "password",
+    "changeme",
+    "admin",
+    "replace-me",
+    "replace-me-with-16-plus-char-random-string",
+}
+
 
 class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://chantepafo:chantepafo_dev@localhost:5432/chantepafo"
     redis_url: str = "redis://localhost:6379"
     secret_key: str = Field(..., min_length=32)
+    metrics_username: str = "metrics"
+    metrics_password: str = Field(..., min_length=16)
     deezer_api_base: str = "https://api.deezer.com"
     upload_dir: str = "uploads"
     cors_origins: list[str] = ["http://localhost:5173"]
@@ -33,6 +45,16 @@ class Settings(BaseSettings):
             raise ValueError(
                 "CHANTEPAFO_SECRET_KEY must be set to a non-default value. "
                 'Generate one with: python -c "import secrets; print(secrets.token_hex(32))"'
+            )
+        return v
+
+    @field_validator("metrics_password")
+    @classmethod
+    def _reject_weak_metrics_password(cls, v: str) -> str:
+        if v.strip().lower() in _FORBIDDEN_METRICS_PASSWORDS:
+            raise ValueError(
+                "CHANTEPAFO_METRICS_PASSWORD must be set to a non-placeholder value "
+                "of at least 16 characters."
             )
         return v
 
