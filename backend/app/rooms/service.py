@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 from redis.asyncio import Redis
 
@@ -16,13 +17,8 @@ class RoomService:
     def _key(self, code: str) -> str:
         return f"room:{code}"
 
-    async def create_room(self, host_id: str, host_name: str) -> dict:
-        code = generate_room_code()
-        while await self.redis.exists(self._key(code)):
-            code = generate_room_code()
-
-        room = {
-            "code": code,
+    async def create_room(self, host_id: str, host_name: str) -> dict[str, Any]:
+        room: dict[str, Any] = {
             "host_id": host_id,
             "players": [{"id": host_id, "name": host_name, "is_host": True}],
             "settings": {
@@ -34,15 +30,22 @@ class RoomService:
             },
             "status": "lobby",
         }
-        await self.redis.set(self._key(code), json.dumps(room), ex=ROOM_TTL)
-        ROOMS_CREATED_TOTAL.inc()
-        return room
+        # Atomically claim a unique code via SET NX to avoid a race between
+        # EXISTS and SET in concurrent create_room calls.
+        for _ in range(10):
+            code = generate_room_code()
+            room["code"] = code
+            claimed = await self.redis.set(self._key(code), json.dumps(room), ex=ROOM_TTL, nx=True)
+            if claimed:
+                ROOMS_CREATED_TOTAL.inc()
+                return room
+        raise RuntimeError("Failed to allocate a unique room code after 10 attempts")
 
-    async def get_room(self, code: str) -> dict | None:
+    async def get_room(self, code: str) -> dict[str, Any] | None:
         data = await self.redis.get(self._key(code))
         return json.loads(data) if data else None
 
-    async def join_room(self, code: str, player_id: str, player_name: str) -> dict | None:
+    async def join_room(self, code: str, player_id: str, player_name: str) -> dict[str, Any] | None:
         room = await self.get_room(code)
         if not room:
             return None
@@ -56,24 +59,31 @@ class RoomService:
         await self.redis.set(self._key(code), json.dumps(room), ex=ROOM_TTL)
         return room
 
-    async def leave_room(self, code: str, player_id: str) -> dict | None:
+    async def leave_room(self, code: str, player_id: str) -> dict[str, Any] | None:
         room = await self.get_room(code)
         if not room:
             return None
+        was_host = room["host_id"] == player_id
         room["players"] = [p for p in room["players"] if p["id"] != player_id]
         if not room["players"]:
             await self.redis.delete(self._key(code))
             return {
                 "code": code,
                 "players": [],
-                "host_id": room["host_id"],
                 "settings": room["settings"],
                 "status": "closed",
             }
+        if was_host:
+            new_host = room["players"][0]
+            room["host_id"] = new_host["id"]
+            for p in room["players"]:
+                p["is_host"] = p["id"] == new_host["id"]
         await self.redis.set(self._key(code), json.dumps(room), ex=ROOM_TTL)
         return room
 
-    async def update_settings(self, code: str, host_id: str, settings: dict) -> dict | None:
+    async def update_settings(
+        self, code: str, host_id: str, settings: dict[str, Any]
+    ) -> dict[str, Any] | None:
         room = await self.get_room(code)
         if not room or room["host_id"] != host_id:
             return None
@@ -81,7 +91,7 @@ class RoomService:
         await self.redis.set(self._key(code), json.dumps(room), ex=ROOM_TTL)
         return room
 
-    async def set_status(self, code: str, status: str) -> dict | None:
+    async def set_status(self, code: str, status: str) -> dict[str, Any] | None:
         room = await self.get_room(code)
         if not room:
             return None

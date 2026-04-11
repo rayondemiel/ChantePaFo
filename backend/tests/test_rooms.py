@@ -116,3 +116,26 @@ async def test_leave_room_when_last_player(room_service):
 async def test_leave_room_nonexistent(room_service):
     result = await room_service.leave_room("FAKE99", player_id="p1")
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_leave_room_promotes_new_host_when_host_leaves(room_service):
+    room = await room_service.create_room(host_id="host-1", host_name="Alice")
+    await room_service.join_room(room["code"], player_id="p2", player_name="Bob")
+    await room_service.join_room(room["code"], player_id="p3", player_name="Carol")
+
+    updated = await room_service.leave_room(room["code"], player_id="host-1")
+
+    assert updated is not None
+    assert updated["host_id"] == "p2"  # first remaining
+    assert updated["players"][0]["id"] == "p2"
+    assert updated["players"][0]["is_host"] is True
+    assert all(p["is_host"] is False for p in updated["players"][1:])
+
+
+@pytest.mark.asyncio
+async def test_leave_room_non_host_keeps_host(room_service):
+    room = await room_service.create_room(host_id="host-1", host_name="Alice")
+    await room_service.join_room(room["code"], player_id="p2", player_name="Bob")
+    updated = await room_service.leave_room(room["code"], player_id="p2")
+    assert updated["host_id"] == "host-1"
