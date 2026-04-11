@@ -1,6 +1,6 @@
 import re
 
-from app.rooms.codegen import generate_room_code, THEME_WORDS
+from app.rooms.codegen import THEME_WORDS, generate_room_code
 
 
 def test_code_format():

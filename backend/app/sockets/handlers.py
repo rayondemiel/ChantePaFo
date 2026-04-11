@@ -1,6 +1,6 @@
-from app.main import sio
 from app.database import get_redis
 from app.logging_config import get_logger
+from app.main import sio
 from app.rooms.service import RoomService
 
 logger = get_logger(__name__)
@@ -46,9 +46,7 @@ def register_handlers():
         await sio.enter_room(sid, code)
         await redis.set(f"player_room:{sid}", code, ex=1800)
         await redis.set(f"player_id:{sid}", player_id, ex=1800)
-        logger.info(
-            "player joined room sid=%s room=%s player_id=%s", sid, code, player_id
-        )
+        logger.info("player joined room sid=%s room=%s player_id=%s", sid, code, player_id)
         await sio.emit("room_updated", room, room=code)
 
     @sio.event

@@ -6,11 +6,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.config import settings
-from app.logging_config import configure_logging, get_logger
-from app.database import create_tables
 from app import models  # noqa: F401
 from app.auth.router import router as auth_router
+from app.config import settings
+from app.database import create_tables
+from app.logging_config import configure_logging, get_logger
 from app.rooms.router import router as rooms_router
 
 configure_logging()
@@ -25,9 +25,7 @@ async def lifespan(app: FastAPI):
     logger.info("shutting down ChantePaFo backend")
 
 
-sio = socketio.AsyncServer(
-    async_mode="asgi", cors_allowed_origins=settings.cors_origins
-)
+sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins=settings.cors_origins)
 
 app = FastAPI(title="ChantePaFo", version="0.1.0", lifespan=lifespan)
 app.add_middleware(

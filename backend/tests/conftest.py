@@ -1,7 +1,8 @@
-import pytest
 import fakeredis.aioredis
-from httpx import AsyncClient, ASGITransport
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+import pytest
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
 from app.database import Base, get_db, get_redis
 from app.main import app
 

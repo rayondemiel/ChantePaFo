@@ -1,4 +1,5 @@
 import pytest
+
 from app.rooms.service import RoomService
 
 
@@ -19,9 +20,7 @@ async def test_create_room(room_service):
 @pytest.mark.asyncio
 async def test_join_room(room_service):
     room = await room_service.create_room(host_id="host-1", host_name="Alice")
-    updated = await room_service.join_room(
-        room["code"], player_id="p2", player_name="Bob"
-    )
+    updated = await room_service.join_room(room["code"], player_id="p2", player_name="Bob")
     assert len(updated["players"]) == 2
     names = [p["name"] for p in updated["players"]]
     assert "Bob" in names
@@ -37,12 +36,8 @@ async def test_join_nonexistent_room(room_service):
 async def test_join_full_room(room_service):
     room = await room_service.create_room(host_id="host-1", host_name="Alice")
     for i in range(9):
-        await room_service.join_room(
-            room["code"], player_id=f"p{i}", player_name=f"Player{i}"
-        )
-    result = await room_service.join_room(
-        room["code"], player_id="p99", player_name="TooMany"
-    )
+        await room_service.join_room(room["code"], player_id=f"p{i}", player_name=f"Player{i}")
+    result = await room_service.join_room(room["code"], player_id="p99", player_name="TooMany")
     assert result is None
 
 

@@ -40,9 +40,7 @@ class RoomService:
         data = await self.redis.get(self._key(code))
         return json.loads(data) if data else None
 
-    async def join_room(
-        self, code: str, player_id: str, player_name: str
-    ) -> dict | None:
+    async def join_room(self, code: str, player_id: str, player_name: str) -> dict | None:
         room = await self.get_room(code)
         if not room:
             return None
@@ -51,9 +49,7 @@ class RoomService:
 
         existing_ids = {p["id"] for p in room["players"]}
         if player_id not in existing_ids:
-            room["players"].append(
-                {"id": player_id, "name": player_name, "is_host": False}
-            )
+            room["players"].append({"id": player_id, "name": player_name, "is_host": False})
 
         await self.redis.set(self._key(code), json.dumps(room), ex=ROOM_TTL)
         return room
@@ -75,9 +71,7 @@ class RoomService:
         await self.redis.set(self._key(code), json.dumps(room), ex=ROOM_TTL)
         return room
 
-    async def update_settings(
-        self, code: str, host_id: str, settings: dict
-    ) -> dict | None:
+    async def update_settings(self, code: str, host_id: str, settings: dict) -> dict | None:
         room = await self.get_room(code)
         if not room or room["host_id"] != host_id:
             return None

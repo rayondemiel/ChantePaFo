@@ -30,13 +30,9 @@ async def get_room(code: str, svc: RoomService = Depends(get_room_service)):
 
 
 @router.post("/{code}/join")
-async def join_room(
-    code: str, req: RoomJoin, svc: RoomService = Depends(get_room_service)
-):
+async def join_room(code: str, req: RoomJoin, svc: RoomService = Depends(get_room_service)):
     player_id = str(uuid.uuid4())
-    room = await svc.join_room(
-        code.upper(), player_id=player_id, player_name=req.player_name
-    )
+    room = await svc.join_room(code.upper(), player_id=player_id, player_name=req.player_name)
     if not room:
         raise HTTPException(404, "Room not found or full")
     return {"room": room, "player_id": player_id}
