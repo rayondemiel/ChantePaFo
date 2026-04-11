@@ -7,6 +7,7 @@ from app.database import async_session as session_factory
 from app.database import get_redis
 from app.logging_config import get_logger
 from app.main import sio
+from app.metrics import SOCKETIO_CONNECTIONS_ACTIVE, SOCKETIO_EVENTS_TOTAL
 from app.models import User
 from app.rooms.service import RoomService
 
@@ -46,10 +47,14 @@ def register_handlers():
             raise socketio.exceptions.ConnectionRefusedError("unauthorized")
 
         await sio.save_session(sid, {"user_id": user_id, "username": username})
+        SOCKETIO_EVENTS_TOTAL.labels(event="connect").inc()
+        SOCKETIO_CONNECTIONS_ACTIVE.inc()
         logger.info("client connected sid=%s user=%s", sid, username)
 
     @sio.event
     async def disconnect(sid):
+        SOCKETIO_EVENTS_TOTAL.labels(event="disconnect").inc()
+        SOCKETIO_CONNECTIONS_ACTIVE.dec()
         session = await sio.get_session(sid)
         user_id = session.get("user_id") if session else None
         logger.info("client disconnected sid=%s", sid)
@@ -71,6 +76,7 @@ def register_handlers():
 
     @sio.event
     async def join_room(sid, data):
+        SOCKETIO_EVENTS_TOTAL.labels(event="join_room").inc()
         code = data["code"]
         session = await sio.get_session(sid)
         user_id = session["user_id"]
@@ -90,6 +96,7 @@ def register_handlers():
 
     @sio.event
     async def update_settings(sid, data):
+        SOCKETIO_EVENTS_TOTAL.labels(event="update_settings").inc()
         code = data["code"]
         settings = data["settings"]
         session = await sio.get_session(sid)
@@ -109,6 +116,7 @@ def register_handlers():
 
     @sio.event
     async def start_game(sid, data):
+        SOCKETIO_EVENTS_TOTAL.labels(event="start_game").inc()
         code = data["code"]
         session = await sio.get_session(sid)
         user_id = session["user_id"]
@@ -131,6 +139,7 @@ def register_handlers():
 
     @sio.event
     async def reaction(sid, data):
+        SOCKETIO_EVENTS_TOTAL.labels(event="reaction").inc()
         code = data["code"]
         session = await sio.get_session(sid)
         user_id = session["user_id"]
@@ -153,6 +162,7 @@ def register_handlers():
 
     @sio.event
     async def soundboard(sid, data):
+        SOCKETIO_EVENTS_TOTAL.labels(event="soundboard").inc()
         code = data["code"]
         session = await sio.get_session(sid)
         username = session["username"]

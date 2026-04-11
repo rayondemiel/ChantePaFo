@@ -2,6 +2,7 @@ import json
 
 from redis.asyncio import Redis
 
+from app.metrics import ROOMS_CREATED_TOTAL
 from app.rooms.codegen import generate_room_code
 
 ROOM_TTL = 1800  # 30 minutes
@@ -34,6 +35,7 @@ class RoomService:
             "status": "lobby",
         }
         await self.redis.set(self._key(code), json.dumps(room), ex=ROOM_TTL)
+        ROOMS_CREATED_TOTAL.inc()
         return room
 
     async def get_room(self, code: str) -> dict | None:
