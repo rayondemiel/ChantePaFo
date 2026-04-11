@@ -1,3 +1,5 @@
+from typing import Any
+
 import socketio
 from jose import JWTError
 from sqlalchemy import select
@@ -14,12 +16,12 @@ from app.rooms.service import RoomService
 logger = get_logger(__name__)
 
 
-def _public_room(room: dict) -> dict:
+def _public_room(room: dict[str, Any]) -> dict[str, Any]:
     """Return a copy of the room dict with private server-side fields removed."""
     return {k: v for k, v in room.items() if k != "host_id"}
 
 
-def register_handlers():
+def register_handlers() -> None:
     @sio.event
     async def connect(sid, environ, auth):
         if not auth or not isinstance(auth, dict):
@@ -72,7 +74,7 @@ def register_handlers():
                         user_id,
                     )
                     await sio.emit("room_updated", _public_room(room), room=room_code)
-            await redis.delete(f"player_room:{sid}", f"player_id:{sid}")
+            await redis.delete(f"player_room:{sid}")
 
     @sio.event
     async def join_room(sid, data):
@@ -90,7 +92,6 @@ def register_handlers():
 
         await sio.enter_room(sid, code)
         await redis.set(f"player_room:{sid}", code, ex=1800)
-        await redis.set(f"player_id:{sid}", user_id, ex=1800)
         logger.info("player joined room sid=%s room=%s user_id=%s", sid, code, user_id)
         await sio.emit("room_updated", _public_room(room), room=code)
 
@@ -103,16 +104,19 @@ def register_handlers():
         user_id = session["user_id"]
         redis = get_redis()
         svc = RoomService(redis)
+        room = await svc.get_room(code)
+        if room is None:
+            logger.warning("update_settings rejected: room not found code=%s", code)
+            await sio.emit("error", {"message": "Room not found"}, to=sid)
+            return
+        if room["host_id"] != user_id:
+            logger.warning("update_settings rejected: not host room=%s user=%s", code, user_id)
+            await sio.emit("error", {"message": "Only the host can update settings"}, to=sid)
+            return
         room = await svc.update_settings(code, user_id, settings)
         if room:
             logger.info("settings updated room=%s user=%s", code, user_id)
             await sio.emit("room_updated", _public_room(room), room=code)
-        else:
-            logger.warning(
-                "update_settings rejected room=%s user=%s (not found or not host)",
-                code,
-                user_id,
-            )
 
     @sio.event
     async def start_game(sid, data):
