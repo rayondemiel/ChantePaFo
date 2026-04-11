@@ -45,7 +45,7 @@ async def test_register_duplicate_username(client):
         json={
             "username": "alice",
             "email": "alice@example.com",
-            "password": "pass123",
+            "password": "password1",
         },
     )
     resp = await client.post(
@@ -53,7 +53,7 @@ async def test_register_duplicate_username(client):
         json={
             "username": "alice",
             "email": "alice2@example.com",
-            "password": "pass123",
+            "password": "password1",
         },
     )
     assert resp.status_code == 409
@@ -98,3 +98,55 @@ async def test_login_wrong_password(client):
         },
     )
     assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_register_rejects_short_password(client):
+    resp = await client.post(
+        "/auth/register",
+        json={
+            "username": "bob",
+            "email": "bob@example.com",
+            "password": "short",
+        },
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_register_rejects_invalid_email(client):
+    resp = await client.post(
+        "/auth/register",
+        json={
+            "username": "bob",
+            "email": "not-an-email",
+            "password": "password1",
+        },
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_register_rejects_invalid_username(client):
+    resp = await client.post(
+        "/auth/register",
+        json={
+            "username": "bad user!",
+            "email": "bob@example.com",
+            "password": "password1",
+        },
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_register_rejects_oversize_password(client):
+    resp = await client.post(
+        "/auth/register",
+        json={
+            "username": "bob",
+            "email": "bob@example.com",
+            "password": "x" * 73,
+        },
+    )
+    assert resp.status_code == 422

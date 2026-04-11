@@ -1,17 +1,31 @@
-import fakeredis.aioredis
-import pytest
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+import os
 
-from app.database import Base, get_db, get_redis
-from app.main import app
+# Required settings must be present before `app.main` imports run.
+os.environ.setdefault(
+    "CHANTEPAFO_SECRET_KEY",
+    "test-secret-must-be-at-least-32-characters-long-abcdef",
+)
 
-TEST_DB_URL = "sqlite+aiosqlite:///test.db"
+import fakeredis.aioredis  # noqa: E402
+import pytest  # noqa: E402
+from httpx import ASGITransport, AsyncClient  # noqa: E402
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine  # noqa: E402
+from sqlalchemy.pool import StaticPool  # noqa: E402
+
+from app.database import Base, get_db, get_redis  # noqa: E402
+from app.main import app  # noqa: E402
+
+TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
 
 
 @pytest.fixture
 async def db_session():
-    engine = create_async_engine(TEST_DB_URL, echo=False)
+    engine = create_async_engine(
+        TEST_DB_URL,
+        echo=False,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
