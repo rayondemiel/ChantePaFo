@@ -1,5 +1,6 @@
 import os
 import secrets
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Annotated
 
@@ -24,7 +25,7 @@ logger = get_logger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("starting ChantePaFo backend v%s", "0.1.0")
     await create_tables()
     yield
@@ -88,7 +89,7 @@ async def metrics_endpoint(
 
 
 @app.get("/health")
-async def health():
+async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 

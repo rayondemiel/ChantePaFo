@@ -1,3 +1,5 @@
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException
 from redis.asyncio import Redis
 
@@ -14,7 +16,7 @@ def get_room_service(redis: Redis = Depends(get_redis)) -> RoomService:
     return RoomService(redis)
 
 
-def _public_room(room: dict) -> dict:
+def _public_room(room: dict[str, Any]) -> dict[str, Any]:
     """Return a copy of the room dict with private server-side fields removed."""
     public = {k: v for k, v in room.items() if k != "host_id"}
     return public
@@ -25,7 +27,7 @@ async def create_room(
     req: RoomCreate,
     svc: RoomService = Depends(get_room_service),
     current_user: User = Depends(get_current_user),
-):
+) -> dict[str, Any]:
     room = await svc.create_room(host_id=current_user.id, host_name=req.host_name)
     return {"room": _public_room(room)}
 
@@ -35,7 +37,7 @@ async def get_room(
     code: str,
     svc: RoomService = Depends(get_room_service),
     current_user: User = Depends(get_current_user),
-):
+) -> dict[str, Any]:
     room = await svc.get_room(code.upper())
     if not room:
         raise HTTPException(404, "Room not found")
@@ -48,7 +50,7 @@ async def join_room(
     req: RoomJoin,
     svc: RoomService = Depends(get_room_service),
     current_user: User = Depends(get_current_user),
-):
+) -> dict[str, Any]:
     room = await svc.join_room(code.upper(), player_id=current_user.id, player_name=req.player_name)
     if not room:
         raise HTTPException(404, "Room not found or full")

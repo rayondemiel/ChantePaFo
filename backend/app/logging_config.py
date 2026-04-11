@@ -1,6 +1,7 @@
 import logging
 import logging.config
 import sys
+from typing import Any
 
 from app.config import settings
 
@@ -10,7 +11,7 @@ DATE_FORMAT = "%Y-%m-%dT%H:%M:%S%z"
 
 def configure_logging() -> None:
     level = settings.log_level.upper()
-    config: dict = {
+    config: dict[str, Any] = {
         "version": 1,
         "disable_existing_loggers": False,
         "formatters": {
