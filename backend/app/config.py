@@ -59,5 +59,15 @@ class Settings(BaseSettings):
             )
         return v
 
+    @field_validator("cors_origins")
+    @classmethod
+    def _reject_wildcard(cls, v: list[str]) -> list[str]:
+        if "*" in v:
+            raise ValueError(
+                "cors_origins must not contain '*' — Starlette forbids this when "
+                "allow_credentials=True (which this app enables). List explicit origins."
+            )
+        return v
+
 
 settings = Settings()  # type: ignore[call-arg]
