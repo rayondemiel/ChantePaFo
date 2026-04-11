@@ -5,7 +5,7 @@ from app.rooms.codegen import THEME_WORDS, generate_room_code
 
 def test_code_format():
     code = generate_room_code()
-    assert re.match(r"^[A-Z]{4}\d{2}$", code), f"Bad format: {code}"
+    assert re.match(r"^[A-Z]{4}\d{4}$", code), f"Bad format: {code}"
 
 
 def test_code_uses_theme_words():
@@ -22,4 +22,4 @@ def test_codes_are_unique():
 def test_digits_in_range():
     code = generate_room_code()
     digits = int(code[4:])
-    assert 10 <= digits <= 99
+    assert 1000 <= digits <= 9999

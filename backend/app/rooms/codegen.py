@@ -38,5 +38,5 @@ THEME_WORDS = [
 
 def generate_room_code() -> str:
     word = random.choice(THEME_WORDS)  # nosec B311 — room codes are not security-sensitive
-    digits = random.randint(10, 99)  # nosec B311 — room codes are not security-sensitive
+    digits = random.randint(1000, 9999)  # nosec B311 — room codes are not security-sensitive
     return f"{word}{digits}"
