@@ -5,6 +5,10 @@ os.environ.setdefault(
     "CHANTEPAFO_SECRET_KEY",
     "test-secret-must-be-at-least-32-characters-long-abcdef",
 )
+os.environ.setdefault(
+    "CHANTEPAFO_METRICS_PASSWORD",
+    "test-metrics-password-long-enough-for-tests",
+)
 
 import fakeredis.aioredis  # noqa: E402
 import pytest  # noqa: E402
