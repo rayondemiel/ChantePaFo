@@ -7,16 +7,22 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
+from app.logging_config import configure_logging, get_logger
 from app.database import create_tables
 from app import models  # noqa: F401
 from app.auth.router import router as auth_router
 from app.rooms.router import router as rooms_router
 
+configure_logging()
+logger = get_logger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    logger.info("starting ChantePaFo backend v%s", "0.1.0")
     await create_tables()
     yield
+    logger.info("shutting down ChantePaFo backend")
 
 
 sio = socketio.AsyncServer(
