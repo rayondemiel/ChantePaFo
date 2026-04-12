@@ -1,5 +1,9 @@
 <template>
-  <div v-if="roomStore.room" class="lobby">
+  <div
+    v-if="roomStore.room"
+    class="lobby"
+    :class="{ 'lobby--mobile': isMobile, 'lobby--desktop': !isMobile }"
+  >
     <!-- Ambient decoration -->
     <div class="bg-grid" aria-hidden="true"></div>
     <div class="bg-orb bg-orb-1" aria-hidden="true"></div>
@@ -193,6 +197,7 @@ import { useAuthStore } from '../stores/auth'
 import { useRoomStore } from '../stores/room'
 import { useGameStore } from '../stores/game'
 import { useSocket } from '../composables/useSocket'
+import { useBreakpoint } from '../composables/useBreakpoint'
 import PlayerList from '../components/PlayerList.vue'
 import GenreSelector from '../components/GenreSelector.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
@@ -227,6 +232,8 @@ const karaokeVariant = ref<KaraokeVariant>('classic')
 const errorMsg = ref('')
 const toast = ref('')
 const canNativeShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function'
+
+const { isMobile } = useBreakpoint()
 
 const canStart = computed(() => (roomStore.room?.players.length ?? 0) >= 2)
 const emptySlots = computed(() => Math.max(0, 10 - (roomStore.room?.players.length ?? 0)))
@@ -410,17 +417,20 @@ onUnmounted(() => {
    per-mode accents, and pulsing ambient orbs.
    ========================================= */
 
-/* Break out of any narrow parent and own the viewport */
+/* Full-bleed layout — the lobby OCCUPIES the entire viewport on desktop.
+   No max-width, no centered box. Everything (background orbs, grid, content)
+   stretches edge-to-edge so there's no "artificial cut" on wide monitors.
+   Mobile (<900px): natural scroll, content stacks, footer is fixed at bottom.
+   Desktop (>=900px): locked to 100vh, page itself NEVER scrolls.
+                      Panels scroll internally if their content overflows. */
 .lobby {
   position: relative;
   display: flex;
   flex-direction: column;
   min-height: 100vh;
   width: 100%;
-  max-width: 1240px;
-  margin: 0 auto;
-  padding: clamp(1rem, 3vw, 2.5rem) clamp(1rem, 4vw, 3rem) 8rem;
-  gap: clamp(1.25rem, 2.5vw, 2rem);
+  padding: clamp(1rem, 2.5vw, 2rem) clamp(1rem, 3.5vw, 3rem);
+  gap: clamp(1rem, 2vw, 1.5rem);
   isolation: isolate;
 }
 
@@ -445,27 +455,29 @@ onUnmounted(() => {
   opacity: 0.55;
   mix-blend-mode: screen;
 }
+/* Positions use % + min()/max() so orbs spread nicely across any viewport
+   width — from a narrow 900px laptop to a 3440px ultra-wide. */
 .bg-orb-1 {
-  top: -80px;
-  left: -60px;
-  width: 340px;
-  height: 340px;
+  top: -5%;
+  left: -3%;
+  width: clamp(280px, 22vw, 480px);
+  height: clamp(280px, 22vw, 480px);
   background: radial-gradient(circle, var(--color-primary) 0%, transparent 65%);
   animation: orb-drift 18s ease-in-out infinite;
 }
 .bg-orb-2 {
-  top: 30%;
-  right: -120px;
-  width: 420px;
-  height: 420px;
+  top: 25%;
+  right: -4%;
+  width: clamp(320px, 26vw, 560px);
+  height: clamp(320px, 26vw, 560px);
   background: radial-gradient(circle, var(--color-accent) 0%, transparent 65%);
   animation: orb-drift 22s ease-in-out infinite reverse;
 }
 .bg-orb-3 {
-  bottom: -120px;
-  left: 30%;
-  width: 380px;
-  height: 380px;
+  bottom: -8%;
+  left: 35%;
+  width: clamp(300px, 24vw, 520px);
+  height: clamp(300px, 24vw, 520px);
   background: radial-gradient(circle, var(--color-secondary) 0%, transparent 65%);
   animation: orb-drift 26s ease-in-out infinite;
 }
@@ -688,8 +700,16 @@ onUnmounted(() => {
 }
 @media (min-width: 900px) {
   .lobby-grid {
-    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.3fr);
-    gap: var(--space-lg);
+    /* Roster stays compact-ish, console takes the rest of the full viewport */
+    grid-template-columns: minmax(280px, 0.7fr) minmax(0, 2fr);
+    gap: clamp(1rem, 1.8vw, 1.75rem);
+    align-items: stretch;
+  }
+}
+/* Ultra-wide: cap roster growth, let console breathe */
+@media (min-width: 1600px) {
+  .lobby-grid {
+    grid-template-columns: minmax(320px, 0.55fr) minmax(0, 2.4fr);
   }
 }
 
@@ -1082,8 +1102,18 @@ onUnmounted(() => {
   }
 }
 
-/* ===== Desktop layout: header becomes a 2-col header ===== */
+/* ===== Desktop layout =====
+   Key fix for the scroll bug: the lobby is locked to 100vh so the PAGE
+   never scrolls. If a panel's content is longer than its column, only
+   that panel scrolls internally via overflow-y: auto with a thin scrollbar.
+   No more 8rem dead space, no more accidental overflow. */
 @media (min-width: 900px) {
+  .lobby {
+    /* Lock the dashboard to the viewport. No page scroll, ever. */
+    height: 100vh;
+    min-height: 0;
+    overflow: hidden;
+  }
   .lobby-header {
     grid-template-columns: 1fr auto;
     align-items: end;
@@ -1091,29 +1121,93 @@ onUnmounted(() => {
   .header-chips {
     justify-content: flex-end;
   }
+  /* Grid consumes the space between header and footer */
+  .lobby-grid {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  /* Panels scroll internally if their content overflows the column */
+  .panel {
+    max-height: 100%;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+  }
+  .panel::-webkit-scrollbar {
+    width: 6px;
+  }
+  .panel::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 3px;
+  }
+  /* Footer sits at the bottom of the flex column, inline (not sticky) */
   .lobby-footer {
     position: static;
-    padding-top: var(--space-lg);
+    flex: 0 0 auto;
+    padding-top: 0;
   }
   .btn-launch {
-    max-width: 480px;
+    max-width: 520px;
     margin: 0 auto;
   }
 }
 
-/* ===== Mobile polish ===== */
+/* ===== Tablet/mobile layout (<900px): stack + fixed footer bar ===== */
+@media (max-width: 899px) {
+  .lobby {
+    /* Leave room for the fixed launch bar so the last content isn't hidden */
+    padding-bottom: 6.5rem;
+  }
+  .lobby-footer {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 20;
+    padding: 0.75rem clamp(1rem, 4vw, 1.5rem) calc(0.75rem + env(safe-area-inset-bottom));
+    background: linear-gradient(180deg, transparent 0%, rgba(10, 10, 26, 0.95) 45%);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+  }
+  .btn-launch {
+    /* Thumb-friendly touch target — WCAG 2.5.5 level AAA recommends 44×44 */
+    min-height: 52px;
+    padding: 0.9rem 1.4rem;
+  }
+}
+
+/* ===== Mobile polish (small screens) ===== */
 @media (max-width: 560px) {
+  .lobby {
+    gap: 0.8rem;
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+  .marquee-code {
+    font-size: clamp(2.6rem, 13vw, 4rem);
+  }
+  .panel {
+    padding: 0.9rem 1rem;
+  }
   .mode-grid {
     grid-template-columns: 1fr;
+    gap: 0.5rem;
   }
   .mode-card {
     flex-direction: row;
     align-items: center;
-    gap: 0.8rem;
+    gap: 0.85rem;
+    padding: 0.75rem 0.95rem;
+    min-height: 56px;
+  }
+  .mode-card .mode-tag {
+    margin-left: auto;
+    text-align: right;
   }
   .mode-emoji {
-    font-size: 1.8rem;
+    font-size: 1.7rem;
   }
+  /* Chips: horizontal scroll instead of wrap so they don't eat vertical space */
   .header-chips {
     flex-wrap: nowrap;
     overflow-x: auto;
@@ -1126,6 +1220,12 @@ onUnmounted(() => {
   }
   .chip {
     flex-shrink: 0;
+    min-height: 40px;
+    padding: 0.6rem 1rem;
+  }
+  .seg {
+    min-height: 40px;
+    padding: 0.5rem 1rem;
   }
 }
 
