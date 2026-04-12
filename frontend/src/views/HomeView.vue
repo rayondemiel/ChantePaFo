@@ -86,11 +86,30 @@ async function ensureAuth(name: string): Promise<boolean> {
     body: JSON.stringify({ username: safeUsername, email, password }),
   })
   if (!resp.ok) {
-    error.value = "Erreur d'inscription"
+    error.value = await extractError(resp, "Erreur d'inscription")
     return false
   }
   authStore.setAuth(await resp.json())
   return true
+}
+
+async function extractError(resp: Response, fallback: string): Promise<string> {
+  try {
+    const body = await resp.json()
+    if (body.detail) {
+      if (Array.isArray(body.detail) && body.detail[0]?.msg) {
+        // FastAPI validation error — extract the human-readable message
+        const msg: string = body.detail[0].msg
+        return msg.replace(/^Value error, /, '')
+      }
+      if (typeof body.detail === 'string') {
+        return body.detail
+      }
+    }
+  } catch {
+    // response wasn't JSON
+  }
+  return fallback
 }
 
 async function createRoom() {
@@ -109,7 +128,7 @@ async function createRoom() {
   })
 
   if (!resp.ok) {
-    error.value = 'Erreur création room'
+    error.value = await extractError(resp, 'Erreur création room')
     loading.value = false
     return
   }
@@ -138,7 +157,7 @@ async function joinRoom() {
   })
 
   if (!resp.ok) {
-    error.value = 'Room introuvable ou pleine'
+    error.value = await extractError(resp, 'Room introuvable ou pleine')
     loading.value = false
     return
   }
