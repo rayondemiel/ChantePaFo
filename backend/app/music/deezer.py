@@ -103,13 +103,15 @@ DIFFICULTY_CONFIG: dict[int, dict[str, Any]] = {
 }
 
 
-def _parse_track(data: dict[str, Any]) -> dict[str, Any]:
+def _parse_track(data: dict[str, Any]) -> dict[str, Any] | None:
+    if "id" not in data or "title" not in data:
+        return None
     artist_info = data.get("artist", {})
     album_info = data.get("album", {})
     return {
         "id": data["id"],
         "title": data["title"],
-        "artist": artist_info["name"] if isinstance(artist_info, dict) else "",
+        "artist": artist_info.get("name", "") if isinstance(artist_info, dict) else "",
         "album": album_info.get("title", "") if isinstance(album_info, dict) else "",
         "cover_url": album_info.get("cover_medium", "") if isinstance(album_info, dict) else "",
         "preview_url": data.get("preview", ""),
@@ -170,9 +172,9 @@ class DeezerClient:
             params={"q": query, "limit": limit},
             endpoint_label="search",
         )
-        return [_parse_track(t) for t in data.get("data", []) if t.get("preview")]
+        return [p for t in data.get("data", []) if t.get("preview") and (p := _parse_track(t)) is not None]
 
-    async def get_track(self, track_id: int) -> dict[str, Any]:
+    async def get_track(self, track_id: int) -> dict[str, Any] | None:
         data = await self._api_get(f"/track/{track_id}", endpoint_label="get_track")
         return _parse_track(data)
 
@@ -182,7 +184,7 @@ class DeezerClient:
             params={"limit": limit},
             endpoint_label="chart",
         )
-        return [_parse_track(t) for t in data.get("data", []) if t.get("preview")]
+        return [p for t in data.get("data", []) if t.get("preview") and (p := _parse_track(t)) is not None]
 
     async def search_playlists(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
         data = await self._api_get(
@@ -199,7 +201,7 @@ class DeezerClient:
             params={"limit": limit},
             endpoint_label="playlist_tracks",
         )
-        return [_parse_track(t) for t in data.get("data", []) if t.get("preview")]
+        return [p for t in data.get("data", []) if t.get("preview") and (p := _parse_track(t)) is not None]
 
     async def get_tracks_for_genre(
         self, genre: str, max_playlists: int = 2
