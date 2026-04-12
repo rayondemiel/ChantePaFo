@@ -33,3 +33,10 @@ def test_allows_french_name():
 
 def test_allows_numbers():
     assert is_prohibited("player42") is False
+
+
+def test_allows_innocent_name_containing_short_slur_substring():
+    # Scunthorpe-style: 4-char slurs are matched exact-only, so legitimate
+    # names and words that happen to contain them as a substring must pass.
+    assert is_prohibited("reputation") is False
+    assert is_prohibited("disputes") is False

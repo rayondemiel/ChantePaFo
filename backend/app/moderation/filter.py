@@ -17,19 +17,29 @@ _LEET_MAP: dict[str, str] = {
 
 _WORDLIST_PATH = Path(__file__).parent / "wordlist.txt"
 
+# Short blocked words (< 5 chars) are matched exact-only after normalization,
+# to avoid the Scunthorpe problem (names like "Cassidy" containing "ass").
+# Longer blocked words keep substring matching to catch leet-speak variants.
+_SUBSTRING_THRESHOLD = 5
 
-def _load_wordlist() -> frozenset[str]:
+
+def _load_wordlist() -> tuple[frozenset[str], frozenset[str]]:
     if not _WORDLIST_PATH.exists():
-        return frozenset()
-    words: set[str] = set()
+        return frozenset(), frozenset()
+    short: set[str] = set()
+    long_: set[str] = set()
     for line in _WORDLIST_PATH.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
-        if stripped and not stripped.startswith("#"):
-            words.add(stripped)
-    return frozenset(words)
+        if not stripped or stripped.startswith("#"):
+            continue
+        if len(stripped) < _SUBSTRING_THRESHOLD:
+            short.add(stripped)
+        else:
+            long_.add(stripped)
+    return frozenset(short), frozenset(long_)
 
 
-_BLOCKED_WORDS: frozenset[str] = _load_wordlist()
+_BLOCKED_EXACT, _BLOCKED_SUBSTRING = _load_wordlist()
 
 
 def _normalize(text: str) -> str:
@@ -43,4 +53,6 @@ def _normalize(text: str) -> str:
 
 def is_prohibited(text: str) -> bool:
     normalized = _normalize(text)
-    return any(word in normalized for word in _BLOCKED_WORDS)
+    if normalized in _BLOCKED_EXACT:
+        return True
+    return any(word in normalized for word in _BLOCKED_SUBSTRING)
