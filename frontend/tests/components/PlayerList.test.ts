@@ -23,23 +23,25 @@ describe('PlayerList', () => {
     expect(wrapper.text()).toContain('Bob')
   })
 
-  it('shows crown for host', () => {
+  it('shows host tag', () => {
     const wrapper = mount(PlayerList, {
       props: {
         players: [{ id: 'u1', name: 'Alice', is_host: true }],
       },
     })
-    expect(wrapper.text()).toContain('👑')
+    expect(wrapper.find('.tag-host').exists()).toBe(true)
+    expect(wrapper.text()).toContain('HOST')
   })
 
-  it('highlights current user', () => {
+  it('highlights current user with is-me class', () => {
     const auth = useAuthStore()
     auth.setAuth({ token: 'x', username: 'alice', user_id: 'u1' })
     const wrapper = mount(PlayerList, {
       props: {
-        players: [{ id: 'u1', name: 'Alice', is_host: true }],
+        players: [{ id: 'u1', name: 'Alice', is_host: false }],
       },
     })
-    expect(wrapper.find('.me').exists()).toBe(true)
+    expect(wrapper.find('.is-me').exists()).toBe(true)
+    expect(wrapper.find('.tag-me').exists()).toBe(true)
   })
 })
