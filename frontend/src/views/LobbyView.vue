@@ -130,7 +130,18 @@ function onPlayerKicked(data: unknown) {
 }
 
 onMounted(async () => {
-  // Fetch current room state to catch any updates missed during navigation/connection
+  // 1. Register event listeners FIRST so we don't miss any events
+  on('room_updated', onRoomUpdated)
+  on('game_state', onGameState)
+  on('game_started', onGameState)
+  on('error', onError)
+  on('player_kicked', onPlayerKicked)
+
+  // 2. Ensure we're in the Socket.IO room (fixes race where the host's
+  //    initial join_room was sent before the WebSocket was fully connected)
+  socketEmit('join_room', { code: props.code })
+
+  // 3. Fetch current room state to catch any updates missed during navigation
   if (auth.token) {
     const resp = await auth.authFetch(`/api/rooms/${props.code}`)
     if (resp.ok) {
@@ -138,12 +149,6 @@ onMounted(async () => {
       roomStore.setRoom(data.room)
     }
   }
-
-  on('room_updated', onRoomUpdated)
-  on('game_state', onGameState)
-  on('game_started', onGameState)
-  on('error', onError)
-  on('player_kicked', onPlayerKicked)
 })
 
 onUnmounted(() => {
