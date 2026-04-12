@@ -110,8 +110,10 @@ def test_poete_worst_answer() -> None:
     assert "Michel Jacqueson" in award["detail"]
 
 
-def test_no_duplicate_awards_per_player() -> None:
+def test_no_duplicate_award_ids() -> None:
     awards = compute_awards(_make_history(), mode="blindtest")
+    ids = [a["id"] for a in awards]
+    assert len(ids) == len(set(ids)), f"Duplicate award IDs: {ids}"
     for a in awards:
         assert "id" in a
         assert "player_id" in a

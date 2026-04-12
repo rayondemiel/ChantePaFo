@@ -15,6 +15,18 @@ from typing import Any
 # ---------------------------------------------------------------------------
 
 
+def _player_name(players: dict[str, Any], pid: str) -> str:
+    """Safely get a player's display name, even if they disconnected."""
+    p = players.get(pid)
+    if p and isinstance(p, dict):
+        return str(p.get("name", pid))
+    return pid
+
+
+def _is_known_player(players: dict[str, Any], pid: str) -> bool:
+    return pid in players
+
+
 def _correct_answers(
     rounds: list[dict[str, Any]], player_id: str
 ) -> list[tuple[int, dict[str, Any]]]:
@@ -48,7 +60,6 @@ def _award_maestro(
     players: dict[str, Any],
     rounds: list[dict[str, Any]],
     total_scores: dict[str, int],
-    awarded: set[str],
 ) -> AwardDef | None:
     """Highest total score."""
     if not total_scores:
@@ -59,7 +70,7 @@ def _award_maestro(
         "player_id": winner,
         "title": "Le Maestro",
         "emoji": "🏆",
-        "detail": f"{players[winner]['name']} avec {total_scores[winner]} pts",
+        "detail": f"{_player_name(players, winner)} avec {total_scores[winner]} pts",
     }
 
 
@@ -67,7 +78,6 @@ def _award_oreille_carton(
     players: dict[str, Any],
     rounds: list[dict[str, Any]],
     total_scores: dict[str, int],
-    awarded: set[str],
 ) -> AwardDef | None:
     """Lowest score — only if different player from Maestro."""
     if not total_scores:
@@ -81,7 +91,7 @@ def _award_oreille_carton(
         "player_id": loser,
         "title": "L'Oreille en carton",
         "emoji": "👂",
-        "detail": f"{players[loser]['name']} avec seulement {total_scores[loser]} pts",
+        "detail": f"{_player_name(players, loser)} avec seulement {total_scores[loser]} pts",
     }
 
 
@@ -89,7 +99,6 @@ def _award_shazam(
     players: dict[str, Any],
     rounds: list[dict[str, Any]],
     total_scores: dict[str, int],
-    awarded: set[str],
 ) -> AwardDef | None:
     """Fastest single correct answer across all rounds."""
     best_pid: str | None = None
@@ -97,6 +106,8 @@ def _award_shazam(
 
     for rnd in rounds:
         for pid, ans in rnd["answers"].items():
+            if not _is_known_player(players, pid):
+                continue
             if (ans.get("title_match") or ans.get("artist_match")) and ans.get("time_ms", 0) > 0:
                 if ans["time_ms"] < best_time:
                     best_time = ans["time_ms"]
@@ -111,7 +122,7 @@ def _award_shazam(
         "player_id": best_pid,
         "title": "Le Shazam humain",
         "emoji": "⚡",
-        "detail": f"{players[best_pid]['name']} — {secs:.1f}s",
+        "detail": f"{_player_name(players, best_pid)} — {secs:.1f}s",
     }
 
 
@@ -119,7 +130,6 @@ def _award_fantome(
     players: dict[str, Any],
     rounds: list[dict[str, Any]],
     total_scores: dict[str, int],
-    awarded: set[str],
 ) -> AwardDef | None:
     """Most rounds without answering (minimum 2 blank rounds)."""
     best_pid: str | None = None
@@ -139,7 +149,7 @@ def _award_fantome(
         "player_id": best_pid,
         "title": "Le Fantôme",
         "emoji": "👻",
-        "detail": f"{players[best_pid]['name']} sans répondre {best_count} fois",
+        "detail": f"{_player_name(players, best_pid)} sans répondre {best_count} fois",
     }
 
 
@@ -147,7 +157,6 @@ def _award_poete(
     players: dict[str, Any],
     rounds: list[dict[str, Any]],
     total_scores: dict[str, int],
-    awarded: set[str],
 ) -> AwardDef | None:
     """Most absurd answer: highest distance with non-empty text, on wrong answers."""
     best_pid: str | None = None
@@ -156,13 +165,14 @@ def _award_poete(
 
     for rnd in rounds:
         for pid, ans in rnd["answers"].items():
+            if not _is_known_player(players, pid):
+                continue
             text = ans.get("text", "")
             if not text:
                 continue
             if ans.get("title_match") or ans.get("artist_match"):
                 continue
             dist = ans.get("distance", 0)
-            # Skip sentinel distance (999) used for empty answers
             if dist >= 999:
                 continue
             if dist > best_distance:
@@ -186,13 +196,14 @@ def _award_touriste(
     players: dict[str, Any],
     rounds: list[dict[str, Any]],
     total_scores: dict[str, int],
-    awarded: set[str],
 ) -> AwardDef | None:
     """Highest average distance on wrong answers (non-empty text only)."""
     scores: dict[str, list[int]] = {pid: [] for pid in players}
 
     for rnd in rounds:
         for pid, ans in rnd["answers"].items():
+            if not _is_known_player(players, pid):
+                continue
             text = ans.get("text", "")
             if not text:
                 continue
@@ -200,7 +211,7 @@ def _award_touriste(
                 continue
             dist = ans.get("distance", 0)
             if dist < 999:
-                scores[pid].append(dist)
+                scores.setdefault(pid, []).append(dist)
 
     best_pid: str | None = None
     best_avg = -1.0
@@ -221,7 +232,7 @@ def _award_touriste(
         "player_id": best_pid,
         "title": "Le Touriste",
         "emoji": "🗺️",
-        "detail": f"{players[best_pid]['name']} — distance moy. {best_avg:.1f}",
+        "detail": f"{_player_name(players, best_pid)} — distance moy. {best_avg:.1f}",
     }
 
 
@@ -229,7 +240,6 @@ def _award_rageux(
     players: dict[str, Any],
     rounds: list[dict[str, Any]],
     total_scores: dict[str, int],
-    awarded: set[str],
 ) -> AwardDef | None:
     """Most attempts on a single round (minimum 3)."""
     best_pid: str | None = None
@@ -237,6 +247,8 @@ def _award_rageux(
 
     for rnd in rounds:
         for pid, ans in rnd["answers"].items():
+            if not _is_known_player(players, pid):
+                continue
             att = ans.get("attempts", 0)
             if att > best_attempts:
                 best_attempts = att
@@ -250,7 +262,7 @@ def _award_rageux(
         "player_id": best_pid,
         "title": "Le Rageux",
         "emoji": "😤",
-        "detail": f"{players[best_pid]['name']} — {best_attempts} essais en un round",
+        "detail": f"{_player_name(players, best_pid)} — {best_attempts} essais en un round",
     }
 
 
@@ -258,7 +270,6 @@ def _award_one_hit_wonder(
     players: dict[str, Any],
     rounds: list[dict[str, Any]],
     total_scores: dict[str, int],
-    awarded: set[str],
 ) -> AwardDef | None:
     """Exactly 1 correct answer and it was the fastest answer in that round."""
     for pid in players:
@@ -267,7 +278,6 @@ def _award_one_hit_wonder(
             continue
         round_idx, ans = correct[0]
         rnd = rounds[round_idx]
-        # Check if this player had the fastest time in that round
         round_times = [
             a["time_ms"]
             for a in rnd["answers"].values()
@@ -281,7 +291,7 @@ def _award_one_hit_wonder(
                 "player_id": pid,
                 "title": "Le One Hit Wonder",
                 "emoji": "🎯",
-                "detail": f"{players[pid]['name']} — 1 bonne réponse, la plus rapide du round",
+                "detail": f"{_player_name(players, pid)} — 1 bonne réponse, la plus rapide du round",
             }
     return None
 
@@ -310,18 +320,17 @@ def compute_awards(history: dict[str, Any], mode: str) -> list[dict[str, Any]]:
         mode: game mode identifier (e.g. ``"blindtest"``).
 
     Returns:
-        A list of award dicts, each containing:
-        ``id``, ``player_id``, ``title``, ``emoji``, ``detail``.
+        A list of award dicts. Each award ID appears at most once.
+        A single player CAN receive multiple awards.
     """
     players: dict[str, Any] = history["players"]
     rounds: list[dict[str, Any]] = history["rounds"]
     total_scores: dict[str, int] = history["total_scores"]
 
     results: list[dict[str, Any]] = []
-    awarded: set[str] = set()
 
     for factory in _AWARD_FACTORIES:
-        award = factory(players, rounds, total_scores, awarded)
+        award = factory(players, rounds, total_scores)
         if award is not None:
             results.append(award)
 
