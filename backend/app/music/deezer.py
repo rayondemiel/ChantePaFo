@@ -1,3 +1,4 @@
+import logging
 import random
 import time
 from typing import Any
@@ -6,6 +7,10 @@ import httpx
 
 from app.config import settings
 from app.metrics import DEEZER_API_CALL_DURATION_SECONDS, DEEZER_API_CALLS_TOTAL
+
+logger = logging.getLogger(__name__)
+
+_API_TIMEOUT = 10.0  # seconds
 
 # Each genre maps to a playlist search query (primary) and a keyword fallback.
 # Playlists are human-curated → genre accuracy is much better than keyword search.
@@ -121,16 +126,38 @@ class DeezerClient:
     async def _api_get(
         self, path: str, params: dict[str, Any] | None = None, endpoint_label: str = "search"
     ) -> dict[str, Any]:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=_API_TIMEOUT) as client:
             start = time.perf_counter()
-            resp = await client.get(f"{self.base_url}{path}", params=params)
+            try:
+                resp = await client.get(f"{self.base_url}{path}", params=params)
+            except httpx.HTTPError:
+                DEEZER_API_CALLS_TOTAL.labels(endpoint=endpoint_label, status="error").inc()
+                logger.warning("deezer api request failed endpoint=%s path=%s", endpoint_label, path)
+                return {}
+
             duration = time.perf_counter() - start
             DEEZER_API_CALL_DURATION_SECONDS.labels(endpoint=endpoint_label).observe(duration)
-            DEEZER_API_CALLS_TOTAL.labels(
-                endpoint=endpoint_label,
-                status="success" if resp.status_code == 200 else "error",
-            ).inc()
-            result: dict[str, Any] = resp.json()
+
+            if resp.status_code != 200:
+                DEEZER_API_CALLS_TOTAL.labels(endpoint=endpoint_label, status="error").inc()
+                logger.warning(
+                    "deezer api non-200 endpoint=%s status=%d", endpoint_label, resp.status_code
+                )
+                return {}
+
+            DEEZER_API_CALLS_TOTAL.labels(endpoint=endpoint_label, status="success").inc()
+
+            try:
+                result: dict[str, Any] = resp.json()
+            except ValueError:
+                logger.warning("deezer api invalid json endpoint=%s", endpoint_label)
+                return {}
+
+            # Deezer error responses have an "error" key
+            if "error" in result:
+                logger.warning("deezer api error endpoint=%s error=%s", endpoint_label, result["error"])
+                return {}
+
             return result
 
     async def search(self, query: str, limit: int = 25) -> list[dict[str, Any]]:
