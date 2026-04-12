@@ -160,41 +160,57 @@ class TelephoneArabeMode(GameMode):
 
     def _compute_scores(self) -> None:
         for chain in self.chains:
-            original_title: str = chain["original_track"]["title"]
-            original_artist: str = chain["original_track"]["artist"]
-            round_data: dict[str, Any] = {"answers": {}, "scores": {}}
-
-            for i, step in enumerate(chain["steps"]):
-                pid: str = step["player_id"]
-                if step["type"] == "write":
-                    result = fuzzy_match(step.get("text", ""), original_title, original_artist)
-                    pts = 500 if result["title_match"] else 0
-                    self.history["total_scores"][pid] = (
-                        self.history["total_scores"].get(pid, 0) + pts
-                    )
-                    round_data["answers"][pid] = {
-                        "text": step.get("text", ""),
-                        "title_match": result["title_match"],
-                        "artist_match": result.get("artist_match", False),
-                        "time_ms": 0,
-                        "attempts": 1,
-                        "distance": result.get("distance", 0),
-                    }
-                    round_data["scores"][pid] = round_data["scores"].get(pid, 0) + pts
-
-                if step["type"] == "sing" and i + 1 < len(chain["steps"]):
-                    next_step_data = chain["steps"][i + 1]
-                    if next_step_data["type"] == "write":
-                        result = fuzzy_match(
-                            next_step_data.get("text", ""), original_title, original_artist
-                        )
-                        if result["title_match"]:
-                            self.history["total_scores"][pid] = (
-                                self.history["total_scores"].get(pid, 0) + 300
-                            )
-                            round_data["scores"][pid] = round_data["scores"].get(pid, 0) + 300
-
+            round_data = self._score_chain(chain)
             self.history["rounds"].append(round_data)
+
+    def _score_chain(self, chain: dict[str, Any]) -> dict[str, Any]:
+        title = chain["original_track"]["title"]
+        artist = chain["original_track"]["artist"]
+        round_data: dict[str, Any] = {"answers": {}, "scores": {}}
+
+        for i, step in enumerate(chain["steps"]):
+            pid = step["player_id"]
+            if step["type"] == "write":
+                self._score_writer(pid, step, title, artist, round_data)
+            elif step["type"] == "sing":
+                self._score_singer(pid, i, chain["steps"], title, artist, round_data)
+
+        return round_data
+
+    def _score_writer(
+        self, pid: str, step: dict[str, Any], title: str, artist: str, round_data: dict[str, Any]
+    ) -> None:
+        result = fuzzy_match(step.get("text", ""), title, artist)
+        pts = 500 if result["title_match"] else 0
+        self.history["total_scores"][pid] = self.history["total_scores"].get(pid, 0) + pts
+        round_data["answers"][pid] = {
+            "text": step.get("text", ""),
+            "title_match": result["title_match"],
+            "artist_match": result.get("artist_match", False),
+            "time_ms": 0,
+            "attempts": 1,
+            "distance": result.get("distance", 0),
+        }
+        round_data["scores"][pid] = round_data["scores"].get(pid, 0) + pts
+
+    def _score_singer(
+        self,
+        pid: str,
+        step_idx: int,
+        steps: list[dict[str, Any]],
+        title: str,
+        artist: str,
+        round_data: dict[str, Any],
+    ) -> None:
+        if step_idx + 1 >= len(steps):
+            return
+        next_step = steps[step_idx + 1]
+        if next_step["type"] != "write":
+            return
+        result = fuzzy_match(next_step.get("text", ""), title, artist)
+        if result["title_match"]:
+            self.history["total_scores"][pid] = self.history["total_scores"].get(pid, 0) + 300
+            round_data["scores"][pid] = round_data["scores"].get(pid, 0) + 300
 
     def get_state(self) -> dict[str, Any]:
         return {

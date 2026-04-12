@@ -79,83 +79,77 @@ class KaraokeMystereMode(GameMode):
         player_id: str,
         data: dict[str, Any],
     ) -> dict[str, Any] | None:
-        round_idx: int = self.state["current_round"]
-
         if event_type == "listening_done":
-            self.state["phase"] = "recording"
-            self.recordings.setdefault(round_idx, [])
-            return {"phase": "recording"}
-
+            return self._on_listening_done()
         if event_type == "recording_submitted" and self.state["phase"] == "recording":
-            self.recordings.setdefault(round_idx, [])
-            self.recordings[round_idx].append(
-                {
-                    "player_id": player_id,
-                    "audio_url": data["audio_url"],
-                }
-            )
-            all_recorded = len(self.recordings[round_idx]) >= len(self.players)
-            if all_recorded:
-                self.state["phase"] = "guessing"
-                self.state["current_recording_idx"] = 0
-                self.guesses[round_idx] = {}
-            return {"status": "recorded", "all_done": all_recorded}
-
+            return self._on_recording_submitted(player_id, data)
         if event_type == "guess" and self.state["phase"] == "guessing":
-            rec_idx: int = self.state["current_recording_idx"]
-            recordings = self.recordings.get(round_idx, [])
-            if rec_idx < len(recordings):
-                singer_id = recordings[rec_idx]["player_id"]
-                if player_id == singer_id:
-                    return {"error": "cannot_guess_own_recording"}
-
-            track = self.tracks[round_idx]
-            result: dict[str, Any] = fuzzy_match(data["text"], track["title"], track["artist"])
-            result["time_ms"] = data.get("time_ms", 0)
-            result["text"] = data["text"]
-            result["player_id"] = player_id
-
-            if rec_idx < len(recordings):
-                singer_id = recordings[rec_idx]["player_id"]
-                self.guesses.setdefault(round_idx, {})
-                self.guesses[round_idx].setdefault(singer_id, [])
-                self.guesses[round_idx][singer_id].append(result)
-
-            return result
-
+            return self._on_guess(player_id, data)
         if event_type == "next_recording":
-            self.state["current_recording_idx"] += 1
-            recordings = self.recordings.get(round_idx, [])
-            if self.state["current_recording_idx"] >= len(recordings):
-                self._score_round(round_idx)
-                self.state["phase"] = "reveal"
-            return {
-                "phase": self.state["phase"],
-                "recording_idx": self.state["current_recording_idx"],
-            }
-
+            return self._on_next_recording()
         if event_type == "next_round":
-            next_round = round_idx + 1
-            if next_round >= len(self.tracks):
-                self.state["phase"] = "finished"
-                return {"phase": "finished"}
-
-            round_config = self._get_round_config(next_round, self.state["variant"])
-            self.state.update(
-                {
-                    "current_round": next_round,
-                    "phase": "listening",
-                    "current_recording_idx": 0,
-                    **round_config,
-                    "track": {
-                        "preview_url": self.tracks[next_round]["preview_url"],
-                        "genre": self.tracks[next_round].get("genre", ""),
-                    },
-                }
-            )
-            return {"phase": "listening"}
-
+            return self._on_next_round()
         return None
+
+    def _on_listening_done(self) -> dict[str, Any]:
+        self.state["phase"] = "recording"
+        self.recordings.setdefault(self.state["current_round"], [])
+        return {"phase": "recording"}
+
+    def _on_recording_submitted(self, player_id: str, data: dict[str, Any]) -> dict[str, Any]:
+        round_idx = self.state["current_round"]
+        self.recordings.setdefault(round_idx, [])
+        self.recordings[round_idx].append({"player_id": player_id, "audio_url": data["audio_url"]})
+        all_recorded = len(self.recordings[round_idx]) >= len(self.players)
+        if all_recorded:
+            self.state["phase"] = "guessing"
+            self.state["current_recording_idx"] = 0
+            self.guesses[round_idx] = {}
+        return {"status": "recorded", "all_done": all_recorded}
+
+    def _on_guess(self, player_id: str, data: dict[str, Any]) -> dict[str, Any]:
+        round_idx = self.state["current_round"]
+        rec_idx = self.state["current_recording_idx"]
+        recordings = self.recordings.get(round_idx, [])
+
+        if rec_idx < len(recordings) and recordings[rec_idx]["player_id"] == player_id:
+            return {"error": "cannot_guess_own_recording"}
+
+        track = self.tracks[round_idx]
+        result: dict[str, Any] = fuzzy_match(data["text"], track["title"], track["artist"])
+        result.update({"time_ms": data.get("time_ms", 0), "text": data["text"], "player_id": player_id})
+
+        if rec_idx < len(recordings):
+            singer_id = recordings[rec_idx]["player_id"]
+            self.guesses.setdefault(round_idx, {}).setdefault(singer_id, []).append(result)
+
+        return result
+
+    def _on_next_recording(self) -> dict[str, Any]:
+        round_idx = self.state["current_round"]
+        self.state["current_recording_idx"] += 1
+        if self.state["current_recording_idx"] >= len(self.recordings.get(round_idx, [])):
+            self._score_round(round_idx)
+            self.state["phase"] = "reveal"
+        return {"phase": self.state["phase"], "recording_idx": self.state["current_recording_idx"]}
+
+    def _on_next_round(self) -> dict[str, Any]:
+        next_round = self.state["current_round"] + 1
+        if next_round >= len(self.tracks):
+            self.state["phase"] = "finished"
+            return {"phase": "finished"}
+        round_config = self._get_round_config(next_round, self.state["variant"])
+        self.state.update({
+            "current_round": next_round,
+            "phase": "listening",
+            "current_recording_idx": 0,
+            **round_config,
+            "track": {
+                "preview_url": self.tracks[next_round]["preview_url"],
+                "genre": self.tracks[next_round].get("genre", ""),
+            },
+        })
+        return {"phase": "listening"}
 
     def _score_round(self, round_idx: int) -> None:
         round_data: dict[str, Any] = {"answers": {}, "scores": {}}

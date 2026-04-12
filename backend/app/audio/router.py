@@ -51,7 +51,7 @@ def _detect_format(content: bytes) -> str | None:
 )
 async def upload_audio(
     current_user: Annotated[User, Depends(get_current_user)],
-    file: UploadFile = File(...),
+    file: Annotated[UploadFile, File(...)],
     x_content_sha256: Annotated[str | None, Header()] = None,
 ) -> dict[str, str]:
     # Step 1: check declared content type
