@@ -419,8 +419,8 @@ async def _handle_kick_player(sid: str, data: object) -> None:
     # Persist a ban key so the target cannot re-join via join_room.
     await redis.set(_kicked_key(payload.code, payload.player_id), "1", ex=ROOM_TTL)
 
-    # Find every live socket for the target user and disconnect them, so the
-    # kicked client can no longer emit events from an already-open session.
+    # Find every live socket for the target user — we need them for the
+    # disconnect loop below, but only AFTER broadcasting player_kicked.
     raw_sids: set[str] = await cast("Any", redis.smembers(_room_sids_key(payload.code)))
     target_sids: list[str] = []
     for other_sid in raw_sids:
@@ -428,6 +428,20 @@ async def _handle_kick_player(sid: str, data: object) -> None:
         if other_session and other_session.get("user_id") == payload.player_id:
             target_sids.append(other_sid)
 
+    # Broadcast player_kicked BEFORE disconnecting the target, otherwise the
+    # target leaves the socketio room first and never receives the event —
+    # they'd just see a silent disconnect with no explanation in the UI.
+    await sio.emit(
+        "player_kicked",
+        {
+            "player_id": payload.player_id,
+            "reason": "Exclu par l'hôte",
+        },
+        room=payload.code,
+    )
+
+    # Now disconnect the target's sockets so they can no longer emit events
+    # from an already-open session.
     for target_sid in target_sids:
         try:
             await sio.leave_room(target_sid, payload.code)
@@ -438,14 +452,6 @@ async def _handle_kick_player(sid: str, data: object) -> None:
         await redis.delete(f"player_room:{target_sid}")
 
     updated_room = await svc.leave_room(payload.code, payload.player_id)
-    await sio.emit(
-        "player_kicked",
-        {
-            "player_id": payload.player_id,
-            "reason": "Exclu par l'hôte",
-        },
-        room=payload.code,
-    )
 
     if updated_room:
         await sio.emit("room_updated", public_room(updated_room), room=payload.code)

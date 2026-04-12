@@ -632,6 +632,38 @@ async def test_kick_sets_ban_key_and_disconnects_target(sio_env):
     assert "sid-victim" not in sids_remaining
 
 
+async def test_kick_broadcasts_before_disconnect(sio_env):
+    """player_kicked must fire before room_updated so the target's UI can
+    render the kicked notice modal before the socket tears down."""
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+
+    async with app.sockets.handlers.session_factory() as db:
+        db.add(User(id="victim-3", username="dan", email="d@t.com", password_hash="x"))
+        await db.commit()
+    sio_env["sessions"]["sid-victim"] = {"user_id": "victim-3", "username": "dan"}
+    await sio_env["handlers"]["join_room"]("sid-victim", {"code": code})
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["kick_player"]("sid-1", {"code": code, "player_id": "victim-3"})
+
+    events = sio_env["emitted"]
+    kicked_idx = next(
+        i
+        for i, e in enumerate(events)
+        if e["event"] == "player_kicked" and e["data"]["player_id"] == "victim-3"
+    )
+    room_updated_idx = next(
+        (i for i, e in enumerate(events) if e["event"] == "room_updated"),
+        None,
+    )
+    # player_kicked must come BEFORE room_updated (and before the disconnect
+    # which happens synchronously in the mock between them)
+    assert room_updated_idx is not None
+    assert kicked_idx < room_updated_idx
+    assert "sid-victim" in sio_env["disconnected"]
+
+
 async def test_kicked_user_cannot_rejoin(sio_env):
     """After a kick, a rejoin attempt by the banned user is refused."""
     await _connect(sio_env)
