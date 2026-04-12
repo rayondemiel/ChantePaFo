@@ -380,15 +380,34 @@ async def test_telephone_singer_no_bonus_when_next_step_is_not_write() -> None:
     # Manually craft a chain where two consecutive steps are both "sing" (no write between)
     chain = mode.chains[0]
     chain["steps"] = [
-        {"player_id": "p0", "player_name": "Player0", "step_idx": 0, "type": "sing", "audio_url": "/a.webm"},
-        {"player_id": "p1", "player_name": "Player1", "step_idx": 1, "type": "sing", "audio_url": "/b.webm"},
+        {
+            "player_id": "p0",
+            "player_name": "Player0",
+            "step_idx": 0,
+            "type": "sing",
+            "audio_url": "/a.webm",
+        },
+        {
+            "player_id": "p1",
+            "player_name": "Player1",
+            "step_idx": 1,
+            "type": "sing",
+            "audio_url": "/b.webm",
+        },
     ]
     mode.history["total_scores"]["p0"] = 0
     mode.history["total_scores"]["p1"] = 0
 
     round_data: dict[str, Any] = {"answers": {}, "scores": {}}
     # Call _score_singer on step index 0; next step is "sing" not "write" → no bonus
-    mode._score_singer("p0", 0, chain["steps"], chain["original_track"]["title"], chain["original_track"]["artist"], round_data)
+    mode._score_singer(
+        "p0",
+        0,
+        chain["steps"],
+        chain["original_track"]["title"],
+        chain["original_track"]["artist"],
+        round_data,
+    )
 
     assert mode.history["total_scores"]["p0"] == 0
     assert round_data["scores"] == {}
