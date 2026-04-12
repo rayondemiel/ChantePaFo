@@ -7,6 +7,15 @@ backend/uploads/
 *.egg-info/
 .pytest_cache/
 
+# Test artifacts
+backend/.coverage
+backend/coverage.xml
+backend/test.db
+backend/htmlcov/
+backend/test-results.xml
+frontend/coverage/
+frontend/test-results.xml
+
 # Node
 frontend/node_modules/
 frontend/dist/
@@ -31,9 +40,6 @@ Thumbs.db
 .claude/
 docs/superpowers/
 CLAUDE.md
-
-# uv
-backend/uv.lock
 
 # Misc
 *.log

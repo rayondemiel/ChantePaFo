@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+# Resolve the commit-msg file path to an absolute path BEFORE cd'ing,
+# so commitlint can still find it when it runs from frontend/.
+MSG_FILE="$(git rev-parse --show-toplevel)/$1"
+(cd "$(git rev-parse --show-toplevel)/frontend" && npx --no -- commitlint --edit "$MSG_FILE")

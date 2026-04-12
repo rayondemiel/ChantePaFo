@@ -1,0 +1,39 @@
+.git
+.github
+.husky
+docs
+frontend
+node_modules
+
+# Python
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.pytest_cache
+backend/.venv
+backend/uploads
+
+# Test artifacts
+backend/htmlcov
+backend/.coverage
+backend/coverage.xml
+backend/test-results.xml
+backend/test.db
+backend/tests
+
+# Env
+backend/.env
+backend/.env.*
+!backend/.env.example
+
+# Tooling / docs
+*.md
+CHANGELOG.md
+commitlint.config.*
+codecov.yml
+sonar-project.properties
+.releaserc.json
+.editorconfig
+.gitignore
+.dockerignore
+Dockerfile

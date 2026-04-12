@@ -1,0 +1,27 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-chantepafo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chantepafo_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-chantepafo}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    ports:
+      - "${REDIS_EXPORTER_PORT:-9121}:9121"
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    depends_on:
+      - redis
+
+volumes:
+  pgdata:
