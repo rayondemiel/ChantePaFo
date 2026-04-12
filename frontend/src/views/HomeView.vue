@@ -6,6 +6,7 @@
     <div class="actions">
       <div class="section">
         <input
+          ref="hostInput"
           v-model="hostName"
           class="input-text"
           placeholder="Ton pseudo"
@@ -49,7 +50,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useRoomStore } from '../stores/room'
@@ -60,11 +61,28 @@ const authStore = useAuthStore()
 const roomStore = useRoomStore()
 const { connect, emit: socketEmit } = useSocket()
 
-const hostName = ref('')
+const PSEUDO_STORAGE_KEY = 'chantepafo.pseudo'
+
+const hostInput = ref<HTMLInputElement | null>(null)
+const savedPseudo =
+  typeof localStorage !== 'undefined' ? (localStorage.getItem(PSEUDO_STORAGE_KEY) ?? '') : ''
+const hostName = ref(savedPseudo)
 const joinCode = ref('')
-const joinName = ref('')
+const joinName = ref(savedPseudo)
 const error = ref('')
 const loading = ref(false)
+
+function persistPseudo(value: string) {
+  const trimmed = value.trim()
+  if (trimmed) localStorage.setItem(PSEUDO_STORAGE_KEY, trimmed)
+}
+
+watch(hostName, persistPseudo)
+watch(joinName, persistPseudo)
+
+onMounted(() => {
+  hostInput.value?.focus()
+})
 
 async function ensureAuth(name: string): Promise<boolean> {
   if (authStore.isLoggedIn) return true
