@@ -55,3 +55,10 @@ def test_distance_returned():
 def test_the_prefix_stripped():
     result = fuzzy_match("beatles", "The Beatles", "The Beatles")
     assert result["artist_match"] is True
+
+
+def test_punctuation_only_does_not_match():
+    result = fuzzy_match("!!!", "Thriller", "Michael Jackson")
+    assert result["title_match"] is False
+    assert result["artist_match"] is False
+    assert result["score"] == 0
