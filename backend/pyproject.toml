@@ -46,13 +46,6 @@ python_version = "3.12"
 strict = true
 ignore_missing_imports = true
 
-# Socket.IO event handlers are registered as closures via @sio.event decorator.
-# Annotating the inner async functions (connect, disconnect, join_room, etc.)
-# requires complex Any-typed signatures that break the decorator pattern.
-# Per-module override is narrower than disabling strict globally.
-[[tool.mypy.overrides]]
-module = "app.sockets.handlers"
-disallow_untyped_defs = false
 
 [tool.bandit]
 exclude_dirs = ["tests", ".venv"]

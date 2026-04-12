@@ -22,8 +22,8 @@ _FORBIDDEN_METRICS_PASSWORDS = {
 
 
 class Settings(BaseSettings):
-    database_url: str = "postgresql+asyncpg://chantepafo:chantepafo_dev@localhost:5432/chantepafo"
-    redis_url: str = "redis://localhost:6379"
+    database_url: str = Field(...)
+    redis_url: str = Field(...)
     secret_key: str = Field(..., min_length=32)
     metrics_username: str = "metrics"
     metrics_password: str = Field(..., min_length=16)

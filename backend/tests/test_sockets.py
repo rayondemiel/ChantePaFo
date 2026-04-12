@@ -9,6 +9,14 @@ import os
 
 # Must be set before any app imports.
 os.environ.setdefault(
+    "CHANTEPAFO_DATABASE_URL",
+    "sqlite+aiosqlite:///:memory:",
+)
+os.environ.setdefault(
+    "CHANTEPAFO_REDIS_URL",
+    "redis://localhost:6379",
+)
+os.environ.setdefault(
     "CHANTEPAFO_SECRET_KEY",
     "test-secret-must-be-at-least-32-characters-long-abcdef",
 )

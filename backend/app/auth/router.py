@@ -1,3 +1,5 @@
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,8 +12,15 @@ from app.models import User
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/register", response_model=TokenResponse, status_code=201)
-async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db)) -> TokenResponse:
+@router.post(
+    "/register",
+    status_code=201,
+    responses={409: {"description": "Username or email already exists"}},
+)
+async def register(
+    req: RegisterRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> TokenResponse:
     existing = await db.execute(
         select(User).where((User.username == req.username) | (User.email == req.email))
     )
@@ -31,8 +40,14 @@ async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db)) -> 
     return TokenResponse(token=token, username=user.username, user_id=user.id)
 
 
-@router.post("/login", response_model=TokenResponse)
-async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)) -> TokenResponse:
+@router.post(
+    "/login",
+    responses={401: {"description": "Invalid credentials"}},
+)
+async def login(
+    req: LoginRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> TokenResponse:
     result = await db.execute(select(User).where(User.username == req.username))
     user = result.scalar_one_or_none()
     if not user or not verify_password(req.password, user.password_hash):
