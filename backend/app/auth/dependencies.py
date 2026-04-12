@@ -42,6 +42,7 @@ async def get_current_user(
     # Validate sub looks like a UUID to prevent injection into DB queries
     try:
         import uuid
+
         uuid.UUID(user_id)
     except ValueError:
         raise HTTPException(
