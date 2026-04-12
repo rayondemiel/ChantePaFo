@@ -36,27 +36,32 @@ async def test_search_tracks(deezer):
         assert tracks[0]["preview_url"].startswith("https://")
 
 
-async def test_search_by_genre(deezer):
-    mock_response = {
-        "data": [
-            {
-                "id": 1,
-                "title": "Test",
-                "artist": {"name": "A"},
-                "album": {"title": "B", "cover_medium": ""},
-                "preview": "https://preview.test",
-                "duration": 180,
-                "release_date": "2020-01-01",
-            }
-        ]
-    }
-    with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = mock_response
-        mock_resp.status_code = 200
-        mock_get.return_value = mock_resp
-        tracks = await deezer.search_by_genre("rock")
+async def test_get_tracks_for_genre(deezer):
+    mock_playlists = [{"id": 42, "title": "Rock Essentials", "nb_tracks": 50}]
+    mock_tracks = [
+        {
+            "id": 1,
+            "title": "Test Rock",
+            "artist": "A",
+            "album": "B",
+            "cover_url": "",
+            "preview_url": "https://preview.test",
+            "duration": 180,
+            "release_date": "2020-01-01",
+            "rank": 500000,
+        }
+    ]
+    with (
+        patch.object(
+            deezer, "search_playlists", new_callable=AsyncMock, return_value=mock_playlists
+        ),
+        patch.object(
+            deezer, "get_playlist_tracks", new_callable=AsyncMock, return_value=mock_tracks
+        ),
+    ):
+        tracks = await deezer.get_tracks_for_genre("rock")
         assert len(tracks) >= 1
+        assert tracks[0]["title"] == "Test Rock"
 
 
 async def test_get_track(deezer):
