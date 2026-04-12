@@ -506,13 +506,6 @@ GENRE_AMBIANCE_MAP: dict[str, _G] = {
         "vibe": "poetic",
         "bpm": 90,
     },
-    "varietefraaise": {
-        "palette": ["#FF99CC", "#99CCFF", "#FFFFAA"],
-        "behavior": "wave_smooth",
-        "intensity": 0.55,
-        "vibe": "nostalgic",
-        "bpm": 100,
-    },
     "varietefrancaise": {
         "palette": ["#FF99CC", "#99CCFF", "#FFFFAA"],
         "behavior": "wave_smooth",
