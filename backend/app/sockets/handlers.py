@@ -1,5 +1,5 @@
 import socketio
-from jose import JWTError
+from jwt.exceptions import InvalidTokenError
 from pydantic import ValidationError
 from sqlalchemy import select
 
@@ -39,7 +39,7 @@ async def _handle_connect(sid: str, environ: dict[str, object], auth: object) ->
 
     try:
         payload = decode_token(token)
-    except JWTError:
+    except InvalidTokenError:
         raise socketio.exceptions.ConnectionRefusedError("unauthorized")
 
     user_id = payload.get("sub")
