@@ -196,3 +196,199 @@ async def test_telephone_awards_populated() -> None:
 
     assert mode.state["phase"] == "reveal"
     assert len(mode.history["rounds"]) > 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# New targeted tests for missing coverage
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_telephone_get_input_step_zero() -> None:
+    """_get_player_input at step 0 returns the original track preview_url."""
+    mode = TelephoneArabeMode()
+    await mode.start(
+        players=_players(3),
+        settings={"genres": {"all": 1}},
+        track_provider=FakeTrackProvider(),
+    )
+    # Step 0, phase = singing
+    assert mode.state["current_step"] == 0
+    result = await mode.handle_event("get_input", "p0", {})
+    assert result is not None
+    assert result["type"] == "original"
+    assert result["preview_url"].startswith("https://preview/")
+
+
+@pytest.mark.asyncio
+async def test_telephone_get_input_later_step() -> None:
+    """_get_player_input at step > 0 returns the previous step data."""
+    mode = TelephoneArabeMode()
+    players = _players(3)
+    await mode.start(
+        players=players,
+        settings={"genres": {"all": 1}},
+        track_provider=FakeTrackProvider(),
+    )
+
+    # Submit all singing to advance to step 1
+    for p in players:
+        await mode.handle_event("submit_step", p["id"], {"audio_url": f"/u/{p['id']}.webm"})
+
+    # Now at step 1, phase = writing
+    assert mode.state["current_step"] == 1
+
+    result = await mode.handle_event("get_input", "p0", {})
+    # Should return previous step data (a sing step) — not None, not "original"
+    assert result is not None
+    assert result.get("type") == "sing"
+
+
+@pytest.mark.asyncio
+async def test_telephone_vote_chain() -> None:
+    """vote_chain event registers a vote and returns {'status': 'voted'}."""
+    mode = TelephoneArabeMode()
+    await mode.start(
+        players=_players(3),
+        settings={"genres": {"all": 1}},
+        track_provider=FakeTrackProvider(),
+    )
+
+    result = await mode.handle_event("vote_chain", "p0", {"chain_id": 0, "vote_type": "funniest"})
+    assert result == {"status": "voted"}
+    assert mode.chains[0]["votes"]["funniest"] == 1
+
+    # Second vote increments the counter
+    await mode.handle_event("vote_chain", "p1", {"chain_id": 0, "vote_type": "funniest"})
+    assert mode.chains[0]["votes"]["funniest"] == 2
+
+
+@pytest.mark.asyncio
+async def test_telephone_vote_chain_out_of_bounds() -> None:
+    """vote_chain with an invalid chain_id returns {'status': 'voted'} but adds no votes."""
+    mode = TelephoneArabeMode()
+    await mode.start(
+        players=_players(2),
+        settings={"genres": {"all": 1}},
+        track_provider=FakeTrackProvider(),
+    )
+
+    result = await mode.handle_event("vote_chain", "p0", {"chain_id": 99, "vote_type": "funniest"})
+    assert result == {"status": "voted"}
+    # No chain should have votes
+    for chain in mode.chains:
+        assert "votes" not in chain
+
+
+@pytest.mark.asyncio
+async def test_telephone_end_with_votes() -> None:
+    """end() includes votes dict in each chain when votes exist."""
+    mode = TelephoneArabeMode()
+    await mode.start(
+        players=_players(2),
+        settings={"genres": {"all": 1}},
+        track_provider=FakeTrackProvider(),
+    )
+
+    # Add a vote to chain 0
+    await mode.handle_event("vote_chain", "p0", {"chain_id": 0, "vote_type": "funniest"})
+
+    final = await mode.end()
+    assert "chains" in final
+    chains_with_votes = [c for c in final["chains"] if c.get("votes")]
+    assert len(chains_with_votes) >= 1
+    assert chains_with_votes[0]["votes"]["funniest"] == 1
+
+
+@pytest.mark.asyncio
+async def test_telephone_singer_bonus_when_next_writer_correct() -> None:
+    """Singer gets 300 bonus points when the next writer correctly identifies the song."""
+    mode = TelephoneArabeMode()
+    players = _players(2)
+    await mode.start(
+        players=players,
+        settings={"genres": {"all": 1}},
+        track_provider=FakeTrackProvider(),
+    )
+
+    # With 2 players there are 2 steps: step 0 (singing), step 1 (writing)
+    # Step 0: both players sing
+    for p in players:
+        await mode.handle_event("submit_step", p["id"], {"audio_url": f"/u/{p['id']}.webm"})
+
+    # Step 1: both players write the exact song title to trigger the singer bonus
+    # The chain assigned to each player at step 1 — player[pi] works on chain (pi+1)%2
+    # p0 sings chain 0, p1 sings chain 1; at step 1 p0 writes chain 1, p1 writes chain 0
+    # chain 0 original_track title = "Song0", chain 1 original_track title = "Song1"
+    for p in players:
+        chain_idx = mode.rotation[1][p["id"]]
+        title = mode.chains[chain_idx]["original_track"]["title"]
+        await mode.handle_event("submit_step", p["id"], {"text": title})
+
+    assert mode.state["phase"] == "reveal"
+
+    # Each singer should have received 300 bonus points
+    assert mode.history["total_scores"]["p0"] >= 300
+    assert mode.history["total_scores"]["p1"] >= 300
+
+
+@pytest.mark.asyncio
+async def test_telephone_get_input_step_gt_zero_no_steps() -> None:
+    """_get_player_input at step > 0 returns None when chain has no steps yet."""
+    mode = TelephoneArabeMode()
+    players = _players(3)
+    await mode.start(
+        players=players,
+        settings={"genres": {"all": 1}},
+        track_provider=FakeTrackProvider(),
+    )
+
+    # Manually advance state to step 1 without submitting any steps
+    mode.state["current_step"] = 1
+    mode.state["phase"] = "writing"
+
+    # Chain still has empty steps list — should return None
+    result = await mode.handle_event("get_input", "p0", {})
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_telephone_handle_event_unknown_type_returns_none() -> None:
+    """handle_event with an unknown event_type returns None."""
+    mode = TelephoneArabeMode()
+    await mode.start(
+        players=_players(2),
+        settings={"genres": {"all": 1}},
+        track_provider=FakeTrackProvider(),
+    )
+
+    result = await mode.handle_event("unknown_event", "p0", {})
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_telephone_singer_no_bonus_when_next_step_is_not_write() -> None:
+    """_score_singer skips bonus when step after singing is also a sing step."""
+    mode = TelephoneArabeMode()
+    players = _players(2)
+    await mode.start(
+        players=players,
+        settings={"genres": {"all": 1}},
+        track_provider=FakeTrackProvider(),
+    )
+
+    # Manually craft a chain where two consecutive steps are both "sing" (no write between)
+    chain = mode.chains[0]
+    chain["steps"] = [
+        {"player_id": "p0", "player_name": "Player0", "step_idx": 0, "type": "sing", "audio_url": "/a.webm"},
+        {"player_id": "p1", "player_name": "Player1", "step_idx": 1, "type": "sing", "audio_url": "/b.webm"},
+    ]
+    mode.history["total_scores"]["p0"] = 0
+    mode.history["total_scores"]["p1"] = 0
+
+    round_data: dict[str, Any] = {"answers": {}, "scores": {}}
+    # Call _score_singer on step index 0; next step is "sing" not "write" → no bonus
+    mode._score_singer("p0", 0, chain["steps"], chain["original_track"]["title"], chain["original_track"]["artist"], round_data)
+
+    assert mode.history["total_scores"]["p0"] == 0
+    assert round_data["scores"] == {}

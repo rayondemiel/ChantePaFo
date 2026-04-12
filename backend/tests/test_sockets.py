@@ -715,3 +715,161 @@ async def test_request_ambiance_invalid_payload(sio_env):
 
     errors = [e for e in sio_env["emitted"] if e["event"] == "error"]
     assert len(errors) > 0
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# connect — missing sub/username branch (line 64)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+async def test_connect_rejects_token_missing_username(sio_env):
+    """A JWT that decodes but has no 'username' claim is rejected (line 64)."""
+    from datetime import datetime, timedelta, timezone
+
+    import jwt
+
+    from app.config import settings
+
+    # Craft a valid signed JWT with 'sub' but without 'username'
+    now = datetime.now(timezone.utc)
+    raw_payload = {
+        "sub": "test-user-1",
+        # no 'username' key
+        "exp": now + timedelta(hours=1),
+        "iat": now,
+        "iss": "chantepafo",
+    }
+    bad_token = jwt.encode(raw_payload, settings.secret_key, algorithm="HS256")
+
+    with pytest.raises(sio_lib.exceptions.ConnectionRefusedError):
+        await sio_env["handlers"]["connect"]("sid-1", {}, {"token": bad_token})
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# disconnect — game session cleanup when room empties (lines 103-106)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+async def test_disconnect_cleans_up_game_session_when_room_empty(sio_env):
+    """When the last player disconnects, the active game session is removed."""
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+    await _start_game_mocked(sio_env, code)
+
+    # Verify session was created
+    assert code in app.sockets.handlers._active_sessions
+
+    # Disconnect the only player — room becomes empty, session should be cleaned up
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["disconnect"]("sid-1")
+
+    assert code not in app.sockets.handlers._active_sessions
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# update_settings — room not found after joining (lines 160-162)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+async def test_update_settings_room_deleted_after_join(sio_env):
+    """update_settings emits error when room is deleted between join and update."""
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+
+    # Delete the room from Redis to simulate a race condition
+    await sio_env["redis"].delete(f"room:{code}")
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["update_settings"](
+        "sid-1", {"code": code, "settings": {"num_rounds": 5}}
+    )
+
+    errors = [e for e in sio_env["emitted"] if e["event"] == "error"]
+    assert any("Room not found" in (e["data"] or {}).get("message", "") for e in errors)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# start_game — room disappears after join check (lines 192-193)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+async def test_start_game_room_deleted_after_join(sio_env):
+    """start_game emits error when room is deleted between join and start."""
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+
+    # Delete the room from Redis to simulate a race condition
+    await sio_env["redis"].delete(f"room:{code}")
+
+    sio_env["emitted"].clear()
+    with patch("app.sockets.handlers.DeezerClient") as MockDeezer:
+        mock_instance = AsyncMock()
+        mock_instance.get_random_tracks = AsyncMock(return_value=_FAKE_TRACKS)
+        MockDeezer.return_value = mock_instance
+        await sio_env["handlers"]["start_game"]("sid-1", {"code": code})
+
+    errors = [e for e in sio_env["emitted"] if e["event"] == "error"]
+    assert any("Room not found" in (e["data"] or {}).get("message", "") for e in errors)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# game_event — game session finishes (lines 260-269)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+async def test_game_event_triggers_game_ended_on_finish(sio_env):
+    """When a game_event causes the game phase to become 'finished', game_ended is emitted."""
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+    await _start_game_mocked(sio_env, code)
+
+    # Force the game session phase to "finished" so the next event triggers cleanup
+    game_session = app.sockets.handlers._active_sessions[code]
+    game_session.mode.state["phase"] = "finished"
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["game_event"](
+        "sid-1", {"code": code, "event_type": "noop", "payload": {}}
+    )
+
+    ended_events = [e for e in sio_env["emitted"] if e["event"] == "game_ended"]
+    assert len(ended_events) == 1
+
+    # Session must be removed from active sessions
+    assert code not in app.sockets.handlers._active_sessions
+
+    # Room status should go back to lobby (room_updated or ambiance_update emitted)
+    ambiance_events = [e for e in sio_env["emitted"] if e["event"] == "ambiance_update"]
+    assert len(ambiance_events) >= 1
+
+
+async def test_game_event_finish_race_condition_no_double_end(sio_env, monkeypatch):
+    """Race-condition guard on line 262: if pop returns None (concurrent finish), no game_ended emitted."""
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+    await _start_game_mocked(sio_env, code)
+
+    # Force the phase to finished so the condition on line 259 triggers
+    game_session = app.sockets.handlers._active_sessions[code]
+    game_session.mode.state["phase"] = "finished"
+
+    # Monkeypatch _active_sessions.pop to return None (simulating a concurrent coroutine that
+    # already popped the session before this one reaches line 260)
+    original_sessions = app.sockets.handlers._active_sessions
+    fake_sessions = dict(original_sessions)  # copy with the session still present for .get()
+
+    class _FakeSessionsDict(dict):
+        def pop(self, key, default=None):  # type: ignore[override]
+            return None  # simulate race: always returns None
+
+    fake_dict = _FakeSessionsDict(fake_sessions)
+    monkeypatch.setattr(app.sockets.handlers, "_active_sessions", fake_dict)
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["game_event"](
+        "sid-1", {"code": code, "event_type": "noop", "payload": {}}
+    )
+
+    # No game_ended should be emitted because session was "already handled"
+    ended_events = [e for e in sio_env["emitted"] if e["event"] == "game_ended"]
+    assert len(ended_events) == 0

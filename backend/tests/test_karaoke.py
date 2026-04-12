@@ -119,6 +119,76 @@ async def test_karaoke_end() -> None:
     assert "total_scores" in final
 
 
+@pytest.mark.asyncio
+async def test_karaoke_listening_done() -> None:
+    mode = KaraokeMystereMode()
+    await mode.start(
+        players=_players(2),
+        settings={"num_rounds": 1, "karaoke_variant": "classic", "genres": {"all": 1}},
+        track_provider=FakeTrackProvider(),
+    )
+    result = await mode.handle_event("listening_done", "p0", {})
+    assert result == {"phase": "recording"}
+    assert mode.state["phase"] == "recording"
+
+
+@pytest.mark.asyncio
+async def test_karaoke_next_recording_triggers_reveal() -> None:
+    mode = KaraokeMystereMode()
+    await mode.start(
+        players=_players(2),
+        settings={"num_rounds": 1, "karaoke_variant": "classic", "genres": {"all": 1}},
+        track_provider=FakeTrackProvider(),
+    )
+    mode.state["phase"] = "guessing"
+    mode.state["current_recording_idx"] = 0
+    mode.recordings = {0: [{"player_id": "p0", "audio_url": "/p0.webm"}]}
+    mode.guesses = {0: {}}
+    result = await mode.handle_event("next_recording", "p0", {})
+    assert result is not None
+    assert result["phase"] == "reveal"
+
+
+@pytest.mark.asyncio
+async def test_karaoke_next_round() -> None:
+    mode = KaraokeMystereMode()
+    await mode.start(
+        players=_players(2),
+        settings={"num_rounds": 2, "karaoke_variant": "classic", "genres": {"all": 1}},
+        track_provider=FakeTrackProvider(),
+    )
+    mode.state["phase"] = "reveal"
+    mode.state["current_round"] = 0
+    result = await mode.handle_event("next_round", "p0", {})
+    assert result == {"phase": "listening"}
+    assert mode.state["current_round"] == 1
+
+
+@pytest.mark.asyncio
+async def test_karaoke_next_round_finishes() -> None:
+    mode = KaraokeMystereMode()
+    await mode.start(
+        players=_players(2),
+        settings={"num_rounds": 1, "karaoke_variant": "classic", "genres": {"all": 1}},
+        track_provider=FakeTrackProvider(),
+    )
+    mode.state["current_round"] = 0
+    result = await mode.handle_event("next_round", "p0", {})
+    assert result == {"phase": "finished"}
+
+
+@pytest.mark.asyncio
+async def test_karaoke_unknown_event_returns_none() -> None:
+    mode = KaraokeMystereMode()
+    await mode.start(
+        players=_players(1),
+        settings={"num_rounds": 1, "karaoke_variant": "classic", "genres": {"all": 1}},
+        track_provider=FakeTrackProvider(),
+    )
+    result = await mode.handle_event("nonexistent_event", "p0", {})
+    assert result is None
+
+
 def test_progressive_table_has_5_rounds() -> None:
     assert len(PROGRESSIVE_TABLE) == 5
     assert PROGRESSIVE_TABLE[0]["constraint"] == "free"
