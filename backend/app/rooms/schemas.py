@@ -11,7 +11,7 @@ class PlayerInfo(BaseModel):
 
 class RoomSettings(BaseModel):
     game_mode: str = "blindtest"
-    genres: list[str] = ["all"]
+    genres: dict[str, int] = {"all": 2}
     num_rounds: int = 10
     extract_duration: int = 20
     karaoke_variant: str = "classic"
@@ -21,7 +21,7 @@ class PartialRoomSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     game_mode: str | None = None
-    genres: list[str] | None = None
+    genres: dict[str, int] | None = None
     num_rounds: int | None = Field(default=None, ge=1, le=50)
     extract_duration: int | None = Field(default=None, ge=5, le=60)
     karaoke_variant: str | None = None

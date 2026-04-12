@@ -64,12 +64,12 @@ async def test_update_room_settings(room_service):
         host_id="host-1",
         settings={
             "game_mode": "blindtest",
-            "genres": ["rock", "pop"],
+            "genres": {"rock": 3, "pop": 1},
             "num_rounds": 15,
         },
     )
     assert updated["settings"]["game_mode"] == "blindtest"
-    assert updated["settings"]["genres"] == ["rock", "pop"]
+    assert updated["settings"]["genres"] == {"rock": 3, "pop": 1}
 
 
 @pytest.mark.asyncio
