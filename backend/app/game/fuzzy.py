@@ -42,6 +42,9 @@ def _is_match(answer: str, target: str, threshold: float = 0.3) -> tuple[bool, i
     norm_answer = normalize_text(answer)
     norm_target = normalize_text(target)
 
+    if not norm_answer or not norm_target:
+        return False, 999
+
     if norm_target in norm_answer or norm_answer in norm_target:
         return True, 0
 
