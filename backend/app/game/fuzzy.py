@@ -63,7 +63,11 @@ def fuzzy_match(answer: str, correct_title: str, correct_artist: str) -> dict[st
     title_match, title_dist = _is_match(answer, correct_title)
     artist_match, artist_dist = _is_match(answer, correct_artist)
 
-    if not title_match:
+    # Fallback: if the player typed both title+artist as one string, try combined.
+    # Only enter fallback when NEITHER matched individually — avoids granting
+    # false bonus when only the artist was found (e.g. "Michael Jackson" matching
+    # the combined "Thriller Michael Jackson" via substring).
+    if not title_match and not artist_match:
         combined = f"{correct_title} {correct_artist}"
         combined_match, _ = _is_match(answer, combined)
         if combined_match:
