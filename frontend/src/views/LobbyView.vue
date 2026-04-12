@@ -72,6 +72,37 @@
     </div>
 
     <p v-if="errorMsg" class="feedback feedback-wrong">{{ errorMsg }}</p>
+
+    <ConfirmDialog
+      :open="confirmLeaveOpen"
+      title="Quitter la room ?"
+      message="Tu vas retourner à l'écran d'accueil. Tu pourras toujours rejoindre à nouveau avec le code."
+      confirm-text="Quitter"
+      variant="danger"
+      @confirm="onConfirmLeave"
+      @cancel="confirmLeaveOpen = false"
+    />
+
+    <ConfirmDialog
+      :open="confirmKickOpen"
+      :title="`Exclure ${kickTarget?.name ?? ''} ?`"
+      message="Ce joueur sera retiré de la room immédiatement."
+      confirm-text="Exclure"
+      variant="danger"
+      @confirm="onConfirmKick"
+      @cancel="cancelKick"
+    />
+
+    <ConfirmDialog
+      :open="kickedNoticeOpen"
+      title="Tu as été exclu"
+      message="L'hôte t'a retiré de la room. Tu vas retourner à l'accueil."
+      confirm-text="OK"
+      cancel-text=""
+      variant="danger"
+      @confirm="onAcknowledgeKicked"
+      @cancel="onAcknowledgeKicked"
+    />
   </div>
 </template>
 
@@ -84,7 +115,8 @@ import { useGameStore } from '../stores/game'
 import { useSocket } from '../composables/useSocket'
 import PlayerList from '../components/PlayerList.vue'
 import GenreSelector from '../components/GenreSelector.vue'
-import type { RoomState, GameState } from '../types'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
+import type { RoomState, GameState, Player } from '../types'
 
 const props = defineProps<{ code: string }>()
 const router = useRouter()
@@ -99,6 +131,11 @@ const karaokeVariant = ref('classic')
 const errorMsg = ref('')
 const toast = ref('')
 const canNativeShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function'
+
+const confirmLeaveOpen = ref(false)
+const confirmKickOpen = ref(false)
+const kickTarget = ref<Player | null>(null)
+const kickedNoticeOpen = ref(false)
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null
 function showToast(message: string) {
@@ -134,7 +171,11 @@ async function nativeShare() {
 
 function leaveRoom() {
   if (!roomStore.room) return
-  if (!window.confirm('Quitter la room ?')) return
+  confirmLeaveOpen.value = true
+}
+
+function onConfirmLeave() {
+  confirmLeaveOpen.value = false
   // Disconnecting triggers the server-side _handle_disconnect which
   // calls svc.leave_room and broadcasts room_updated to the other players.
   socketDisconnect()
@@ -165,7 +206,23 @@ function startGame() {
 }
 
 function kickPlayer(playerId: string) {
-  socketEmit('kick_player', { code: props.code, player_id: playerId })
+  const player = roomStore.room?.players.find((p) => p.id === playerId)
+  if (!player) return
+  kickTarget.value = player
+  confirmKickOpen.value = true
+}
+
+function onConfirmKick() {
+  if (kickTarget.value) {
+    socketEmit('kick_player', { code: props.code, player_id: kickTarget.value.id })
+  }
+  confirmKickOpen.value = false
+  kickTarget.value = null
+}
+
+function cancelKick() {
+  confirmKickOpen.value = false
+  kickTarget.value = null
 }
 
 function onRoomUpdated(data: unknown) {
@@ -185,10 +242,14 @@ function onError(data: unknown) {
 function onPlayerKicked(data: unknown) {
   const d = data as { player_id?: string }
   if (d.player_id === auth.userId) {
-    roomStore.clearRoom()
-    window.alert("Tu as été exclu de la room par l'hôte.")
-    router.push('/')
+    kickedNoticeOpen.value = true
   }
+}
+
+function onAcknowledgeKicked() {
+  kickedNoticeOpen.value = false
+  roomStore.clearRoom()
+  router.push('/')
 }
 
 onMounted(async () => {
