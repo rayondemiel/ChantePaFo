@@ -1,0 +1,328 @@
+"""Wall of Shame & Fame — end-of-game award computation.
+
+Each award is a dict with:
+  id         : str  — machine identifier
+  player_id  : str
+  title      : str  — display name
+  emoji      : str
+  detail     : str  — short human-readable reason
+"""
+
+from typing import Any
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+
+def _correct_answers(
+    rounds: list[dict[str, Any]], player_id: str
+) -> list[tuple[int, dict[str, Any]]]:
+    """Return (round_index, answer_dict) pairs where the player got it right."""
+    result = []
+    for i, rnd in enumerate(rounds):
+        ans = rnd["answers"].get(player_id)
+        if ans and (ans.get("title_match") or ans.get("artist_match")):
+            result.append((i, ans))
+    return result
+
+
+def _blank_rounds(rounds: list[dict[str, Any]], player_id: str) -> int:
+    """Count rounds where player gave no answer (empty text or zero attempts)."""
+    count = 0
+    for rnd in rounds:
+        ans = rnd["answers"].get(player_id, {})
+        if not ans.get("text") or ans.get("attempts", 0) == 0:
+            count += 1
+    return count
+
+
+# ---------------------------------------------------------------------------
+# Award definitions
+# ---------------------------------------------------------------------------
+
+AwardDef = dict[str, Any]
+
+
+def _award_maestro(
+    players: dict[str, Any],
+    rounds: list[dict[str, Any]],
+    total_scores: dict[str, int],
+    awarded: set[str],
+) -> AwardDef | None:
+    """Highest total score."""
+    if not total_scores:
+        return None
+    winner = max(total_scores, key=lambda p: total_scores[p])
+    return {
+        "id": "maestro",
+        "player_id": winner,
+        "title": "Le Maestro",
+        "emoji": "🏆",
+        "detail": f"{players[winner]['name']} avec {total_scores[winner]} pts",
+    }
+
+
+def _award_oreille_carton(
+    players: dict[str, Any],
+    rounds: list[dict[str, Any]],
+    total_scores: dict[str, int],
+    awarded: set[str],
+) -> AwardDef | None:
+    """Lowest score — only if different player from Maestro."""
+    if not total_scores:
+        return None
+    loser = min(total_scores, key=lambda p: total_scores[p])
+    maestro = max(total_scores, key=lambda p: total_scores[p])
+    if loser == maestro:
+        return None
+    return {
+        "id": "oreille_carton",
+        "player_id": loser,
+        "title": "L'Oreille en carton",
+        "emoji": "👂",
+        "detail": f"{players[loser]['name']} avec seulement {total_scores[loser]} pts",
+    }
+
+
+def _award_shazam(
+    players: dict[str, Any],
+    rounds: list[dict[str, Any]],
+    total_scores: dict[str, int],
+    awarded: set[str],
+) -> AwardDef | None:
+    """Fastest single correct answer across all rounds."""
+    best_pid: str | None = None
+    best_time: int = 999_999
+
+    for rnd in rounds:
+        for pid, ans in rnd["answers"].items():
+            if (ans.get("title_match") or ans.get("artist_match")) and ans.get("time_ms", 0) > 0:
+                if ans["time_ms"] < best_time:
+                    best_time = ans["time_ms"]
+                    best_pid = pid
+
+    if best_pid is None:
+        return None
+
+    secs = best_time / 1000
+    return {
+        "id": "shazam",
+        "player_id": best_pid,
+        "title": "Le Shazam humain",
+        "emoji": "⚡",
+        "detail": f"{players[best_pid]['name']} — {secs:.1f}s",
+    }
+
+
+def _award_fantome(
+    players: dict[str, Any],
+    rounds: list[dict[str, Any]],
+    total_scores: dict[str, int],
+    awarded: set[str],
+) -> AwardDef | None:
+    """Most rounds without answering (minimum 2 blank rounds)."""
+    best_pid: str | None = None
+    best_count = 1  # require at least 2
+
+    for pid in players:
+        blanks = _blank_rounds(rounds, pid)
+        if blanks > best_count:
+            best_count = blanks
+            best_pid = pid
+
+    if best_pid is None:
+        return None
+
+    return {
+        "id": "fantome",
+        "player_id": best_pid,
+        "title": "Le Fantôme",
+        "emoji": "👻",
+        "detail": f"{players[best_pid]['name']} sans répondre {best_count} fois",
+    }
+
+
+def _award_poete(
+    players: dict[str, Any],
+    rounds: list[dict[str, Any]],
+    total_scores: dict[str, int],
+    awarded: set[str],
+) -> AwardDef | None:
+    """Most absurd answer: highest distance with non-empty text, on wrong answers."""
+    best_pid: str | None = None
+    best_distance = -1
+    best_text = ""
+
+    for rnd in rounds:
+        for pid, ans in rnd["answers"].items():
+            text = ans.get("text", "")
+            if not text:
+                continue
+            if ans.get("title_match") or ans.get("artist_match"):
+                continue
+            dist = ans.get("distance", 0)
+            # Skip sentinel distance (999) used for empty answers
+            if dist >= 999:
+                continue
+            if dist > best_distance:
+                best_distance = dist
+                best_pid = pid
+                best_text = text
+
+    if best_pid is None:
+        return None
+
+    return {
+        "id": "poete",
+        "player_id": best_pid,
+        "title": "Le Poète",
+        "emoji": "🎭",
+        "detail": f"« {best_text} »",
+    }
+
+
+def _award_touriste(
+    players: dict[str, Any],
+    rounds: list[dict[str, Any]],
+    total_scores: dict[str, int],
+    awarded: set[str],
+) -> AwardDef | None:
+    """Highest average distance on wrong answers (non-empty text only)."""
+    scores: dict[str, list[int]] = {pid: [] for pid in players}
+
+    for rnd in rounds:
+        for pid, ans in rnd["answers"].items():
+            text = ans.get("text", "")
+            if not text:
+                continue
+            if ans.get("title_match") or ans.get("artist_match"):
+                continue
+            dist = ans.get("distance", 0)
+            if dist < 999:
+                scores[pid].append(dist)
+
+    best_pid: str | None = None
+    best_avg = -1.0
+
+    for pid, dists in scores.items():
+        if not dists:
+            continue
+        avg = sum(dists) / len(dists)
+        if avg > best_avg:
+            best_avg = avg
+            best_pid = pid
+
+    if best_pid is None:
+        return None
+
+    return {
+        "id": "touriste",
+        "player_id": best_pid,
+        "title": "Le Touriste",
+        "emoji": "🗺️",
+        "detail": f"{players[best_pid]['name']} — distance moy. {best_avg:.1f}",
+    }
+
+
+def _award_rageux(
+    players: dict[str, Any],
+    rounds: list[dict[str, Any]],
+    total_scores: dict[str, int],
+    awarded: set[str],
+) -> AwardDef | None:
+    """Most attempts on a single round (minimum 3)."""
+    best_pid: str | None = None
+    best_attempts = 2  # require at least 3
+
+    for rnd in rounds:
+        for pid, ans in rnd["answers"].items():
+            att = ans.get("attempts", 0)
+            if att > best_attempts:
+                best_attempts = att
+                best_pid = pid
+
+    if best_pid is None:
+        return None
+
+    return {
+        "id": "rageux",
+        "player_id": best_pid,
+        "title": "Le Rageux",
+        "emoji": "😤",
+        "detail": f"{players[best_pid]['name']} — {best_attempts} essais en un round",
+    }
+
+
+def _award_one_hit_wonder(
+    players: dict[str, Any],
+    rounds: list[dict[str, Any]],
+    total_scores: dict[str, int],
+    awarded: set[str],
+) -> AwardDef | None:
+    """Exactly 1 correct answer and it was the fastest answer in that round."""
+    for pid in players:
+        correct = _correct_answers(rounds, pid)
+        if len(correct) != 1:
+            continue
+        round_idx, ans = correct[0]
+        rnd = rounds[round_idx]
+        # Check if this player had the fastest time in that round
+        round_times = [
+            a["time_ms"]
+            for a in rnd["answers"].values()
+            if (a.get("title_match") or a.get("artist_match")) and a.get("time_ms", 0) > 0
+        ]
+        if not round_times:
+            continue
+        if ans["time_ms"] == min(round_times):
+            return {
+                "id": "one_hit_wonder",
+                "player_id": pid,
+                "title": "Le One Hit Wonder",
+                "emoji": "🎯",
+                "detail": f"{players[pid]['name']} — 1 bonne réponse, la plus rapide du round",
+            }
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+_AWARD_FACTORIES = [
+    _award_maestro,
+    _award_oreille_carton,
+    _award_shazam,
+    _award_fantome,
+    _award_poete,
+    _award_touriste,
+    _award_rageux,
+    _award_one_hit_wonder,
+]
+
+
+def compute_awards(history: dict[str, Any], mode: str) -> list[dict[str, Any]]:
+    """Compute end-of-game awards from the game history.
+
+    Args:
+        history: dict with keys ``players``, ``rounds``, ``total_scores``.
+        mode: game mode identifier (e.g. ``"blindtest"``).
+
+    Returns:
+        A list of award dicts, each containing:
+        ``id``, ``player_id``, ``title``, ``emoji``, ``detail``.
+    """
+    players: dict[str, Any] = history["players"]
+    rounds: list[dict[str, Any]] = history["rounds"]
+    total_scores: dict[str, int] = history["total_scores"]
+
+    results: list[dict[str, Any]] = []
+    awarded: set[str] = set()
+
+    for factory in _AWARD_FACTORIES:
+        award = factory(players, rounds, total_scores, awarded)
+        if award is not None:
+            results.append(award)
+
+    return results
