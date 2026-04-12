@@ -68,13 +68,22 @@ const loading = ref(false)
 
 async function ensureAuth(name: string): Promise<boolean> {
   if (authStore.isLoggedIn) return true
-  // Auto-register with a random email for party simplicity
-  const email = `${name.toLowerCase().replace(/\s+/g, '_')}_${Date.now()}@chantepafo.local`
+  // Auto-register: generate a safe username (no spaces/accents) from the display name.
+  // The display name (host_name/player_name) keeps the user's original input.
+  const safeUsername =
+    name
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9_.-]/g, '_')
+      .replace(/_+/g, '_')
+      .slice(0, 20) + `_${Date.now()}`
+  const email = `${safeUsername}@chantepafo.app`
   const password = crypto.randomUUID()
   const resp = await fetch('/api/auth/register', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: name.trim(), email, password }),
+    body: JSON.stringify({ username: safeUsername, email, password }),
   })
   if (!resp.ok) {
     error.value = "Erreur d'inscription"
