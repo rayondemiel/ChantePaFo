@@ -279,13 +279,13 @@ def _award_one_hit_wonder(
         round_idx, ans = correct[0]
         rnd = rounds[round_idx]
         round_times = [
-            a["time_ms"]
+            a.get("time_ms", 0)
             for a in rnd["answers"].values()
             if (a.get("title_match") or a.get("artist_match")) and a.get("time_ms", 0) > 0
         ]
         if not round_times:
             continue
-        if ans["time_ms"] == min(round_times):
+        if ans.get("time_ms", 0) == min(round_times):
             return {
                 "id": "one_hit_wonder",
                 "player_id": pid,
