@@ -17,7 +17,7 @@ export default defineConfig({
       reporter: ['text', 'lcov', 'html'],
       include: ['src/**/*.{ts,vue}'],
       exclude: ['src/main.ts', 'src/**/*.d.ts', 'src/**/__tests__/**'],
-      // TODO: raise to 70 once real frontend tests land (Task 18b+)
+      // TODO: raise to 80 once real frontend tests land (Task 18b+)
       thresholds: {
         lines: 0,
         functions: 0,
