@@ -1,6 +1,8 @@
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.moderation.filter import is_prohibited
 
 _NAME_PATTERN = r"^[^\x00-\x1f\x7f]+$"
 
@@ -35,9 +37,23 @@ class PartialRoomSettings(BaseModel):
 class RoomCreate(BaseModel):
     host_name: str = Field(..., min_length=1, max_length=32, pattern=_NAME_PATTERN)
 
+    @field_validator("host_name")
+    @classmethod
+    def _check_profanity(cls, v: str) -> str:
+        if is_prohibited(v):
+            raise ValueError("Ce pseudo n'est pas autorisé")
+        return v
+
 
 class RoomJoin(BaseModel):
     player_name: str = Field(..., min_length=1, max_length=32, pattern=_NAME_PATTERN)
+
+    @field_validator("player_name")
+    @classmethod
+    def _check_profanity(cls, v: str) -> str:
+        if is_prohibited(v):
+            raise ValueError("Ce pseudo n'est pas autorisé")
+        return v
 
 
 class RoomState(BaseModel):
