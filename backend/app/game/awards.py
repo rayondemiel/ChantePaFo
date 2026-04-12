@@ -8,14 +8,11 @@ Each award is a dict with:
   detail     : str  — short human-readable reason
 """
 
-from typing import Any
-
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
-
 from collections.abc import Iterator
+from typing import Any
 
 
 def _player_name(players: dict[str, Any], pid: str) -> str:
@@ -46,7 +43,7 @@ def _is_wrong_with_text(ans: dict[str, Any]) -> bool:
         return False
     if _is_correct(ans):
         return False
-    return ans.get("distance", 0) < 999
+    return int(ans.get("distance", 0)) < 999
 
 
 def _correct_answers(
