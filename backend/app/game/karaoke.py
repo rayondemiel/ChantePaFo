@@ -117,7 +117,9 @@ class KaraokeMystereMode(GameMode):
 
         track = self.tracks[round_idx]
         result: dict[str, Any] = fuzzy_match(data["text"], track["title"], track["artist"])
-        result.update({"time_ms": data.get("time_ms", 0), "text": data["text"], "player_id": player_id})
+        result.update(
+            {"time_ms": data.get("time_ms", 0), "text": data["text"], "player_id": player_id}
+        )
 
         if rec_idx < len(recordings):
             singer_id = recordings[rec_idx]["player_id"]
@@ -139,16 +141,18 @@ class KaraokeMystereMode(GameMode):
             self.state["phase"] = "finished"
             return {"phase": "finished"}
         round_config = self._get_round_config(next_round, self.state["variant"])
-        self.state.update({
-            "current_round": next_round,
-            "phase": "listening",
-            "current_recording_idx": 0,
-            **round_config,
-            "track": {
-                "preview_url": self.tracks[next_round]["preview_url"],
-                "genre": self.tracks[next_round].get("genre", ""),
-            },
-        })
+        self.state.update(
+            {
+                "current_round": next_round,
+                "phase": "listening",
+                "current_recording_idx": 0,
+                **round_config,
+                "track": {
+                    "preview_url": self.tracks[next_round]["preview_url"],
+                    "genre": self.tracks[next_round].get("genre", ""),
+                },
+            }
+        )
         return {"phase": "listening"}
 
     def _score_round(self, round_idx: int) -> None:
