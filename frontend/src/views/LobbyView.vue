@@ -160,7 +160,13 @@
 
       <section v-else class="panel panel-waiting">
         <div class="waiting-core">
-          <div class="waiting-ring"></div>
+          <div class="waiting-synth" aria-hidden="true">
+            <div class="synth-horizon"></div>
+            <div class="synth-ring synth-ring-3"></div>
+            <div class="synth-ring synth-ring-2"></div>
+            <div class="synth-ring synth-ring-1"></div>
+            <div class="synth-sun"></div>
+          </div>
           <span class="waiting-eyebrow">// STANDBY</span>
           <p class="waiting-title">En attente</p>
           <p class="waiting-sub">
@@ -1336,22 +1342,172 @@ onUnmounted(() => {
     width: 1.2em;
   }
 }
-.waiting-ring {
-  width: 72px;
-  height: 72px;
+/* ===== Waiting spinner — Synthwave sun rising over neon horizon =====
+   Pure 80s Outrun iconography:
+   - A circular "sun" with yellow→pink→purple gradient cut by horizontal
+     dark bands, glowing pink. Static but pulses gently.
+   - A thin neon pink horizon line the sun rises above.
+   - 3 orbital rings (conic-gradient arcs) rotating at different speeds
+     in cyan, pink and purple — creates hypnotic asymmetric motion.
+   - Outer sonar pulse via box-shadow rings. */
+.waiting-synth {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  margin-bottom: 1.1rem;
   border-radius: 50%;
-  border: 2px solid transparent;
-  border-top-color: var(--color-primary);
-  border-right-color: var(--color-accent);
-  animation: spin 2.5s linear infinite;
-  margin-bottom: 0.8rem;
-  box-shadow:
-    0 0 30px rgba(255, 45, 149, 0.25),
-    inset 0 0 20px rgba(0, 240, 255, 0.15);
+  animation: synth-sonar 3s ease-out infinite;
 }
-@keyframes spin {
+
+/* Horizon line crossing the wrapper — the sun "rises" above it */
+.synth-horizon {
+  position: absolute;
+  top: 58%;
+  left: -8%;
+  right: -8%;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 45, 149, 0.5) 20%,
+    rgba(255, 45, 149, 1) 50%,
+    rgba(255, 45, 149, 0.5) 80%,
+    transparent 100%
+  );
+  box-shadow:
+    0 0 10px rgba(255, 45, 149, 0.8),
+    0 0 20px rgba(255, 45, 149, 0.4);
+  pointer-events: none;
+}
+
+/* The synthwave sun: circle with gradient + horizontal band cut-outs */
+.synth-sun {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 48px;
+  height: 48px;
+  margin: -24px 0 0 -24px;
+  border-radius: 50%;
+  background:
+    /* Horizontal dark bands — the iconic "sun strip" look */
+    repeating-linear-gradient(
+      180deg,
+      transparent 0px,
+      transparent 4.5px,
+      rgba(10, 10, 26, 0.95) 4.5px,
+      rgba(10, 10, 26, 0.95) 6px
+    ),
+    /* The sun itself: yellow top → hot pink middle → purple bottom */
+    linear-gradient(180deg, #ffe44d 0%, #ff6ba5 38%, #ff2d95 65%, #b44dff 100%);
+  box-shadow:
+    0 0 24px rgba(255, 45, 149, 0.6),
+    0 0 48px rgba(255, 45, 149, 0.3),
+    0 0 72px rgba(180, 77, 255, 0.2);
+  animation: sun-breathe 2.8s ease-in-out infinite;
+}
+
+/* Orbital rings — conic-gradient arcs masked to a ring shape */
+.synth-ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.synth-ring-1 {
+  width: 68px;
+  height: 68px;
+  margin: -34px 0 0 -34px;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    var(--color-accent) 25deg,
+    transparent 55deg,
+    transparent 180deg,
+    var(--color-accent) 205deg,
+    transparent 235deg,
+    transparent 360deg
+  );
+  -webkit-mask: radial-gradient(circle, transparent 58%, #000 62%);
+  mask: radial-gradient(circle, transparent 58%, #000 62%);
+  filter: drop-shadow(0 0 5px var(--color-accent));
+  animation: ring-cw 5s linear infinite;
+}
+.synth-ring-2 {
+  width: 90px;
+  height: 90px;
+  margin: -45px 0 0 -45px;
+  background: conic-gradient(
+    from 90deg,
+    transparent 0deg,
+    var(--color-primary) 35deg,
+    transparent 75deg,
+    transparent 360deg
+  );
+  -webkit-mask: radial-gradient(circle, transparent 60%, #000 64%);
+  mask: radial-gradient(circle, transparent 60%, #000 64%);
+  filter: drop-shadow(0 0 6px var(--color-primary));
+  animation: ring-ccw 8s linear infinite;
+}
+.synth-ring-3 {
+  width: 114px;
+  height: 114px;
+  margin: -57px 0 0 -57px;
+  background: conic-gradient(
+    from 180deg,
+    transparent 0deg,
+    var(--color-secondary) 20deg,
+    transparent 48deg,
+    transparent 180deg,
+    var(--color-secondary) 200deg,
+    transparent 228deg,
+    transparent 360deg
+  );
+  -webkit-mask: radial-gradient(circle, transparent 62%, #000 66%);
+  mask: radial-gradient(circle, transparent 62%, #000 66%);
+  filter: drop-shadow(0 0 6px var(--color-secondary));
+  animation: ring-cw 12s linear infinite;
+}
+
+@keyframes ring-cw {
+  from {
+    transform: rotate(0deg);
+  }
   to {
     transform: rotate(360deg);
+  }
+}
+@keyframes ring-ccw {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(-360deg);
+  }
+}
+@keyframes sun-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+  50% {
+    transform: scale(1.05);
+    filter: brightness(1.12);
+  }
+}
+@keyframes synth-sonar {
+  0% {
+    box-shadow:
+      0 0 0 0 rgba(255, 45, 149, 0.35),
+      0 0 0 0 rgba(0, 240, 255, 0.22);
+  }
+  80%,
+  100% {
+    box-shadow:
+      0 0 0 34px rgba(255, 45, 149, 0),
+      0 0 0 58px rgba(0, 240, 255, 0);
   }
 }
 .waiting-eyebrow {
@@ -1646,7 +1802,9 @@ onUnmounted(() => {
   .bg-orb,
   .pulse-dot,
   .marquee-cursor,
-  .waiting-ring,
+  .waiting-synth,
+  .synth-sun,
+  .synth-ring,
   .btn-launch::before,
   .panel,
   .lobby-header,
