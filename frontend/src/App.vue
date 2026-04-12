@@ -7,7 +7,13 @@
   </div>
 </template>
 
-<script setup lang="ts"></script>
+<script setup lang="ts">
+import { provideBreakpoint } from './composables/useBreakpoint'
+
+// Install the app-wide viewport breakpoint state.
+// A single matchMedia listener at the root; all views inject the same ref.
+provideBreakpoint()
+</script>
 
 <style>
 #app {
