@@ -6,6 +6,7 @@ from app.metrics import HTTP_REQUEST_DURATION_SECONDS, HTTP_REQUESTS_TOTAL
 
 # Paths that must not be instrumented to avoid self-referential noise / cardinality.
 _EXCLUDED_PATHS = {"/metrics", "/health"}
+_ALLOWED_METHODS = frozenset({"GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"})
 
 
 class PrometheusMiddleware:
@@ -22,7 +23,8 @@ class PrometheusMiddleware:
             await self.app(scope, receive, send)
             return
 
-        method: str = scope.get("method", "GET")
+        raw_method: str = scope.get("method", "GET") or "GET"
+        method = raw_method if raw_method in _ALLOWED_METHODS else "OTHER"
         status_holder: dict[str, int] = {"status": 500}
 
         async def send_wrapper(message: Message) -> None:

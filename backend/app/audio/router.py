@@ -56,7 +56,7 @@ async def upload_audio(
     # Step 1: check declared content type
     content_type = file.content_type or ""
     if content_type not in _ALLOWED_CONTENT_TYPES:
-        raise HTTPException(400, f"File type not allowed: {content_type}")
+        raise HTTPException(400, "File type not allowed. Accepted: audio/webm, audio/mp4")
 
     # Step 2: read and check size
     content = await file.read()
@@ -80,7 +80,10 @@ async def upload_audio(
 
     # Step 6: write with a safe random filename
     filename = f"{uuid.uuid4()}.{detected}"
-    filepath = os.path.join(settings.upload_dir, filename)
+    upload_dir = os.path.realpath(settings.upload_dir)
+    filepath = os.path.realpath(os.path.join(upload_dir, filename))
+    if not filepath.startswith(upload_dir + os.sep):
+        raise HTTPException(400, "Invalid upload path")
 
     with open(filepath, "wb") as f:
         f.write(content)

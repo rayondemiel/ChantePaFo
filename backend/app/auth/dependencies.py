@@ -33,7 +33,17 @@ async def get_current_user(
         ) from exc
 
     user_id = payload.get("sub")
-    if not user_id:
+    if not user_id or not isinstance(user_id, str):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    # Validate sub looks like a UUID to prevent injection into DB queries
+    try:
+        import uuid
+        uuid.UUID(user_id)
+    except ValueError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token payload",

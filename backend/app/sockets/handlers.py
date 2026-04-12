@@ -98,6 +98,13 @@ async def _handle_disconnect(sid: str) -> None:
                 await sio.emit("room_updated", public_room(room), room=room_code)
         await redis.delete(f"player_room:{sid}")
 
+        # Cleanup: if no players left in the room, end the game session
+        if room_code in _active_sessions:
+            room_after = await svc.get_room(room_code)
+            if not room_after or not room_after.get("players"):
+                del _active_sessions[room_code]
+                logger.info("game session cleaned up (empty room) room=%s", room_code)
+
 
 async def _handle_join_room(sid: str, data: object) -> None:
     SOCKETIO_EVENTS_TOTAL.labels(event="join_room").inc()

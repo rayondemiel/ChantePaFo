@@ -237,7 +237,9 @@ async def test_get_current_user_rejects_token_without_sub(client):
 async def test_get_current_user_rejects_token_for_deleted_user(client):
     """A valid token whose user_id doesn't exist in the DB is rejected."""
     # Token for a user that was never registered
-    ghost_token = create_access_token(user_id="nonexistent-user-id", username="ghost")
+    import uuid
+
+    ghost_token = create_access_token(user_id=str(uuid.uuid4()), username="ghost")
     resp = await client.post(
         "/rooms",
         json={"host_name": "Alice"},

@@ -44,7 +44,9 @@ async def test_get_current_user_invalid_token(db_session):
 @pytest.mark.asyncio
 async def test_get_current_user_user_not_found(db_session):
     """Returns 401 when the user_id in the token doesn't exist in the database."""
-    token = create_access_token(user_id="ghost-id-does-not-exist", username="ghost")
+    import uuid
+
+    token = create_access_token(user_id=str(uuid.uuid4()), username="ghost")
     creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
     with pytest.raises(HTTPException) as exc_info:
         await get_current_user(credentials=creds, db=db_session)

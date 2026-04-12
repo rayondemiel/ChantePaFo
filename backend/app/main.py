@@ -18,6 +18,7 @@ from app.config import settings
 from app.database import create_tables
 from app.logging_config import configure_logging, get_logger
 from app.middlewares.metrics import PrometheusMiddleware
+from app.middlewares.security_headers import SecurityHeadersMiddleware
 from app.rooms.router import router as rooms_router
 
 configure_logging()
@@ -36,6 +37,7 @@ sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins=settings.cors
 
 app = FastAPI(title="ChantePaFo", version="0.1.0", lifespan=lifespan)
 app.add_middleware(PrometheusMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
