@@ -50,6 +50,10 @@ app.mount("/uploads", StaticFiles(directory=settings.upload_dir), name="uploads"
 app.include_router(auth_router)
 app.include_router(rooms_router)
 
+from app.audio.router import router as audio_router  # noqa: E402
+
+app.include_router(audio_router)
+
 socket_app = socketio.ASGIApp(sio, other_asgi_app=app)
 
 
