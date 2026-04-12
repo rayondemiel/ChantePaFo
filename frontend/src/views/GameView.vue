@@ -31,15 +31,19 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { useAuthStore } from '../stores/auth'
 import { useGameStore } from '../stores/game'
 import { useAmbianceStore } from '../stores/ambiance'
 import { useSocket } from '../composables/useSocket'
 import type { GameState, AmbianceConfig, Award } from '../types'
 
 defineProps<{ code: string }>()
+const router = useRouter()
+const auth = useAuthStore()
 const gameStore = useGameStore()
 const ambianceStore = useAmbianceStore()
-const { on, off } = useSocket()
+const { connect: socketConnect, on, off } = useSocket()
 
 const phaseName = computed(() => {
   const phase = gameStore.state?.phase
@@ -72,6 +76,14 @@ function onAmbiance(data: unknown) {
 }
 
 onMounted(() => {
+  // Deep-link guard: a direct navigation to /:code/play without going through
+  // the lobby leaves the socket singleton uninitialized. Ensure we're
+  // authenticated and connected before subscribing to events.
+  if (!auth.token) {
+    router.replace('/')
+    return
+  }
+  socketConnect(auth.token)
   on('game_state', onGameState)
   on('game_ended', onGameEnded)
   on('ambiance_update', onAmbiance)

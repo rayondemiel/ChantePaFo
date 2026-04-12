@@ -302,7 +302,13 @@ const props = defineProps<{ code: string }>()
 const router = useRouter()
 const roomStore = useRoomStore()
 const gameStore = useGameStore()
-const { emit: socketEmit, on, off, disconnect: socketDisconnect } = useSocket()
+const {
+  connect: socketConnect,
+  emit: socketEmit,
+  on,
+  off,
+  disconnect: socketDisconnect,
+} = useSocket()
 
 const auth = useAuthStore()
 const gameMode = ref<GameModeId>('blindtest')
@@ -472,24 +478,35 @@ function onAcknowledgeKicked() {
 }
 
 onMounted(async () => {
-  // 1. Register event listeners FIRST so we don't miss any events
+  // Deep-link guard: a direct navigation or refresh on /:code lands here
+  // without running createRoom/joinRoom, so the socket singleton may be
+  // null. Without a token we can't authenticate — send the user home.
+  if (!auth.token) {
+    router.replace('/')
+    return
+  }
+
+  // Ensure the socket is connected BEFORE registering listeners or emitting
+  // join_room. connect() is idempotent (no-op if already connected) so the
+  // happy path from HomeView is unaffected.
+  socketConnect(auth.token)
+
+  // Register event listeners before emitting so we don't miss any events.
   on('room_updated', onRoomUpdated)
   on('game_state', onGameState)
   on('game_started', onGameState)
   on('error', onError)
   on('player_kicked', onPlayerKicked)
 
-  // 2. Ensure we're in the Socket.IO room (fixes race where the host's
-  //    initial join_room was sent before the WebSocket was fully connected)
+  // Enter the Socket.IO room (fixes race where the host's initial
+  // join_room was sent before the WebSocket was fully connected).
   socketEmit('join_room', { code: props.code })
 
-  // 3. Fetch current room state to catch any updates missed during navigation
-  if (auth.token) {
-    const resp = await auth.authFetch(`/api/rooms/${props.code}`)
-    if (resp.ok) {
-      const data = await resp.json()
-      roomStore.setRoom(data.room)
-    }
+  // Fetch current room state to catch any updates missed during navigation.
+  const resp = await auth.authFetch(`/api/rooms/${props.code}`)
+  if (resp.ok) {
+    const data = await resp.json()
+    roomStore.setRoom(data.room)
   }
 })
 
@@ -533,8 +550,8 @@ onUnmounted(() => {
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(rgba(0, 240, 255, 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 240, 255, 0.04) 1px, transparent 1px);
+    linear-gradient(rgba(var(--color-accent-rgb), 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--color-accent-rgb), 0.04) 1px, transparent 1px);
   background-size: 48px 48px;
   mask-image: radial-gradient(ellipse at center top, #000 30%, transparent 75%);
   pointer-events: none;
@@ -548,7 +565,7 @@ onUnmounted(() => {
     180deg,
     transparent 0px,
     transparent 2px,
-    rgba(0, 0, 0, 0.14) 3px,
+    rgba(var(--color-black-rgb), 0.14) 3px,
     transparent 4px
   );
   mask-image: radial-gradient(ellipse at center, #000 40%, transparent 100%);
@@ -643,22 +660,22 @@ onUnmounted(() => {
   text-transform: uppercase;
   background-image: linear-gradient(
     180deg,
-    #ffffff 0%,
+    var(--color-text) 0%,
     var(--color-accent) 55%,
     var(--color-primary) 100%
   );
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 0 24px rgba(0, 240, 255, 0.35))
-    drop-shadow(0 0 60px rgba(255, 45, 149, 0.22));
+  filter: drop-shadow(0 0 24px rgba(var(--color-accent-rgb), 0.35))
+    drop-shadow(0 0 60px rgba(var(--color-primary-rgb), 0.22));
   transition:
     filter 0.25s,
     transform 0.15s;
 }
 .marquee-code:hover {
-  filter: drop-shadow(0 0 32px rgba(0, 240, 255, 0.55))
-    drop-shadow(0 0 80px rgba(255, 45, 149, 0.35));
+  filter: drop-shadow(0 0 32px rgba(var(--color-accent-rgb), 0.55))
+    drop-shadow(0 0 80px rgba(var(--color-primary-rgb), 0.35));
 }
 .marquee-code:active {
   transform: scale(0.98);
@@ -722,7 +739,7 @@ onUnmounted(() => {
   color: var(--color-warning);
   letter-spacing: 2px;
   text-transform: uppercase;
-  text-shadow: 0 0 14px rgba(255, 228, 77, 0.4);
+  text-shadow: 0 0 14px rgba(var(--color-warning-rgb), 0.4);
 }
 .pulse-dot {
   width: 8px;
@@ -759,8 +776,8 @@ onUnmounted(() => {
   align-items: center;
   gap: 0.45rem;
   padding: 0.55rem 1rem;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(var(--color-white-rgb), 0.03);
+  border: 1px solid rgba(var(--color-white-rgb), 0.1);
   border-radius: var(--radius-full);
   color: var(--color-text);
   font-family: var(--font-body);
@@ -774,8 +791,8 @@ onUnmounted(() => {
     transform 0.1s;
 }
 .chip:hover {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(var(--color-white-rgb), 0.06);
+  border-color: rgba(var(--color-white-rgb), 0.22);
   transform: translateY(-1px);
 }
 .chip:active {
@@ -786,15 +803,15 @@ onUnmounted(() => {
   color: var(--color-accent);
 }
 .chip-accent:hover {
-  border-color: rgba(0, 240, 255, 0.5);
-  box-shadow: 0 0 18px rgba(0, 240, 255, 0.15);
+  border-color: rgba(var(--color-accent-rgb), 0.5);
+  box-shadow: 0 0 18px rgba(var(--color-accent-rgb), 0.15);
 }
 .chip-danger .chip-glyph {
   color: var(--color-error);
 }
 .chip-danger:hover {
-  border-color: rgba(255, 82, 82, 0.45);
-  box-shadow: 0 0 18px rgba(255, 82, 82, 0.15);
+  border-color: rgba(var(--color-error-rgb), 0.45);
+  box-shadow: 0 0 18px rgba(var(--color-error-rgb), 0.15);
 }
 
 .toast-bubble {
@@ -803,15 +820,15 @@ onUnmounted(() => {
   left: 0;
   margin-top: var(--space-sm);
   padding: 0.4rem 0.9rem;
-  background: rgba(0, 240, 255, 0.12);
-  border: 1px solid rgba(0, 240, 255, 0.35);
+  background: rgba(var(--color-accent-rgb), 0.12);
+  border: 1px solid rgba(var(--color-accent-rgb), 0.35);
   border-radius: var(--radius-full);
   color: var(--color-accent);
   font-size: var(--text-xs);
   font-weight: 700;
   letter-spacing: 1px;
   text-transform: uppercase;
-  box-shadow: 0 0 24px rgba(0, 240, 255, 0.25);
+  box-shadow: 0 0 24px rgba(var(--color-accent-rgb), 0.25);
 }
 .toast-enter-active,
 .toast-leave-active {
@@ -850,15 +867,19 @@ onUnmounted(() => {
 /* ===== Panels ===== */
 .panel {
   position: relative;
-  background: linear-gradient(160deg, rgba(26, 26, 46, 0.85) 0%, rgba(26, 26, 46, 0.55) 100%);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(
+    160deg,
+    rgba(var(--color-surface-rgb), 0.85) 0%,
+    rgba(var(--color-surface-rgb), 0.55) 100%
+  );
+  border: 1px solid rgba(var(--color-white-rgb), 0.08);
   border-radius: var(--radius-lg);
   padding: clamp(1.1rem, 2.5vw, 1.8rem);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   box-shadow:
-    0 20px 60px rgba(0, 0, 0, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    0 20px 60px rgba(var(--color-black-rgb), 0.4),
+    inset 0 1px 0 rgba(var(--color-white-rgb), 0.06);
   animation: rise-in 0.6s var(--ease-bounce) 0.15s both;
 }
 .panel::before {
@@ -869,10 +890,10 @@ onUnmounted(() => {
   padding: 1px;
   background: linear-gradient(
     135deg,
-    rgba(0, 240, 255, 0.35),
+    rgba(var(--color-accent-rgb), 0.35),
     transparent 40%,
     transparent 60%,
-    rgba(255, 45, 149, 0.35)
+    rgba(var(--color-primary-rgb), 0.35)
   );
   -webkit-mask:
     linear-gradient(#000 0 0) content-box,
@@ -918,7 +939,7 @@ onUnmounted(() => {
 .slots-hint {
   margin-top: var(--space-md);
   padding: 0.5rem 0.8rem;
-  border: 1px dashed rgba(255, 255, 255, 0.1);
+  border: 1px dashed rgba(var(--color-white-rgb), 0.1);
   border-radius: var(--radius-md);
   font-size: var(--text-xs);
   text-align: center;
@@ -957,8 +978,8 @@ onUnmounted(() => {
   align-items: flex-start;
   gap: 0.25rem;
   padding: 0.85rem 0.9rem;
-  background: rgba(10, 10, 26, 0.55);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(var(--color-bg-rgb), 0.55);
+  border: 1px solid rgba(var(--color-white-rgb), 0.08);
   border-radius: var(--radius-md);
   cursor: pointer;
   overflow: hidden;
@@ -988,14 +1009,14 @@ onUnmounted(() => {
 }
 .mode-card:hover {
   transform: translateY(-2px);
-  border-color: rgba(255, 255, 255, 0.18);
+  border-color: rgba(var(--color-white-rgb), 0.18);
 }
 .mode-card:hover::after {
   opacity: 0.15;
 }
 .mode-card.active {
   border-color: var(--mode-accent);
-  background: rgba(10, 10, 26, 0.75);
+  background: rgba(var(--color-bg-rgb), 0.75);
   box-shadow:
     0 0 0 1px var(--mode-accent),
     0 0 30px color-mix(in srgb, var(--mode-accent) 30%, transparent);
@@ -1162,8 +1183,8 @@ onUnmounted(() => {
 .seg-group {
   display: inline-flex;
   padding: 0.25rem;
-  background: rgba(10, 10, 26, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(var(--color-bg-rgb), 0.6);
+  border: 1px solid rgba(var(--color-white-rgb), 0.08);
   border-radius: var(--radius-full);
   gap: 0.15rem;
   width: fit-content;
@@ -1192,8 +1213,8 @@ onUnmounted(() => {
 }
 .seg.active {
   background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
-  color: #fff;
-  box-shadow: 0 4px 18px rgba(255, 45, 149, 0.35);
+  color: var(--color-text);
+  box-shadow: 0 4px 18px rgba(var(--color-primary-rgb), 0.35);
 }
 
 /* ===== Waiting panel ===== */
@@ -1224,7 +1245,7 @@ onUnmounted(() => {
   font-family: var(--font-display);
   color: var(--color-accent);
   letter-spacing: 1px;
-  text-shadow: 0 0 12px rgba(0, 240, 255, 0.4);
+  text-shadow: 0 0 12px rgba(var(--color-accent-rgb), 0.4);
 }
 
 .waiting-readout {
@@ -1240,8 +1261,8 @@ onUnmounted(() => {
   align-items: baseline;
   justify-content: space-between;
   padding: 0.55rem 0.85rem;
-  background: rgba(10, 10, 26, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(var(--color-bg-rgb), 0.6);
+  border: 1px solid rgba(var(--color-white-rgb), 0.06);
   border-radius: var(--radius-md);
   gap: 0.75rem;
 }
@@ -1285,7 +1306,7 @@ onUnmounted(() => {
   max-height: 110px;
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+  scrollbar-color: rgba(var(--color-white-rgb), 0.15) transparent;
 }
 .genre-pill {
   display: inline-flex;
@@ -1369,14 +1390,14 @@ onUnmounted(() => {
   background: linear-gradient(
     90deg,
     transparent 0%,
-    rgba(255, 45, 149, 0.5) 20%,
-    rgba(255, 45, 149, 1) 50%,
-    rgba(255, 45, 149, 0.5) 80%,
+    rgba(var(--color-primary-rgb), 0.5) 20%,
+    rgba(var(--color-primary-rgb), 1) 50%,
+    rgba(var(--color-primary-rgb), 0.5) 80%,
     transparent 100%
   );
   box-shadow:
-    0 0 10px rgba(255, 45, 149, 0.8),
-    0 0 20px rgba(255, 45, 149, 0.4);
+    0 0 10px rgba(var(--color-primary-rgb), 0.8),
+    0 0 20px rgba(var(--color-primary-rgb), 0.4);
   pointer-events: none;
 }
 
@@ -1395,15 +1416,21 @@ onUnmounted(() => {
       180deg,
       transparent 0px,
       transparent 4.5px,
-      rgba(10, 10, 26, 0.95) 4.5px,
-      rgba(10, 10, 26, 0.95) 6px
+      rgba(var(--color-bg-rgb), 0.95) 4.5px,
+      rgba(var(--color-bg-rgb), 0.95) 6px
     ),
     /* The sun itself: yellow top → hot pink middle → purple bottom */
-    linear-gradient(180deg, #ffe44d 0%, #ff6ba5 38%, #ff2d95 65%, #b44dff 100%);
+    linear-gradient(
+        180deg,
+        var(--color-warning) 0%,
+        var(--color-sun-mid) 38%,
+        var(--color-primary) 65%,
+        var(--color-secondary) 100%
+      );
   box-shadow:
-    0 0 24px rgba(255, 45, 149, 0.6),
-    0 0 48px rgba(255, 45, 149, 0.3),
-    0 0 72px rgba(180, 77, 255, 0.2);
+    0 0 24px rgba(var(--color-primary-rgb), 0.6),
+    0 0 48px rgba(var(--color-primary-rgb), 0.3),
+    0 0 72px rgba(var(--color-secondary-rgb), 0.2);
   animation: sun-breathe 2.8s ease-in-out infinite;
 }
 
@@ -1500,14 +1527,14 @@ onUnmounted(() => {
 @keyframes synth-sonar {
   0% {
     box-shadow:
-      0 0 0 0 rgba(255, 45, 149, 0.35),
-      0 0 0 0 rgba(0, 240, 255, 0.22);
+      0 0 0 0 rgba(var(--color-primary-rgb), 0.35),
+      0 0 0 0 rgba(var(--color-accent-rgb), 0.22);
   }
   80%,
   100% {
     box-shadow:
-      0 0 0 34px rgba(255, 45, 149, 0),
-      0 0 0 58px rgba(0, 240, 255, 0);
+      0 0 0 34px rgba(var(--color-primary-rgb), 0),
+      0 0 0 58px rgba(var(--color-accent-rgb), 0);
   }
 }
 .waiting-eyebrow {
@@ -1552,7 +1579,7 @@ onUnmounted(() => {
   font-family: var(--font-display);
   font-size: var(--text-lg);
   font-weight: 700;
-  color: #fff;
+  color: var(--color-text);
   text-transform: uppercase;
   letter-spacing: 3px;
   background: linear-gradient(
@@ -1566,8 +1593,8 @@ onUnmounted(() => {
   border-radius: var(--radius-full);
   cursor: pointer;
   box-shadow:
-    0 10px 40px rgba(255, 45, 149, 0.4),
-    0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+    0 10px 40px rgba(var(--color-primary-rgb), 0.4),
+    0 0 0 1px rgba(var(--color-white-rgb), 0.1) inset;
   transition:
     transform 0.15s,
     box-shadow 0.2s,
@@ -1578,7 +1605,7 @@ onUnmounted(() => {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.25), transparent);
+  background: linear-gradient(90deg, transparent, rgba(var(--color-white-rgb), 0.25), transparent);
   transform: translateX(-100%);
   transition: transform 0.6s;
 }
@@ -1586,8 +1613,8 @@ onUnmounted(() => {
   transform: translateY(-2px);
   background-position: 100% 0;
   box-shadow:
-    0 15px 50px rgba(255, 45, 149, 0.55),
-    0 0 0 1px rgba(255, 255, 255, 0.2) inset;
+    0 15px 50px rgba(var(--color-primary-rgb), 0.55),
+    0 0 0 1px rgba(var(--color-white-rgb), 0.2) inset;
 }
 .btn-launch:hover:not(:disabled)::before {
   transform: translateX(100%);
@@ -1603,7 +1630,7 @@ onUnmounted(() => {
 }
 .launch-arrow {
   font-size: 0.85em;
-  color: rgba(255, 255, 255, 0.95);
+  color: rgba(var(--color-white-rgb), 0.95);
 }
 .launch-meta {
   display: inline-flex;
@@ -1613,8 +1640,8 @@ onUnmounted(() => {
   font-size: var(--text-sm);
   font-weight: 600;
   padding: 0.3rem 0.85rem;
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(var(--color-black-rgb), 0.3);
+  border: 1px solid rgba(var(--color-white-rgb), 0.12);
   border-radius: var(--radius-full);
   letter-spacing: 1px;
   text-transform: none;
@@ -1699,13 +1726,13 @@ onUnmounted(() => {
     max-height: 100%;
     overflow-y: auto;
     scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+    scrollbar-color: rgba(var(--color-white-rgb), 0.15) transparent;
   }
   .panel::-webkit-scrollbar {
     width: 6px;
   }
   .panel::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.15);
+    background: rgba(var(--color-white-rgb), 0.15);
     border-radius: 3px;
   }
   /* Footer sits at the bottom of the flex column, inline (not sticky) */
@@ -1733,7 +1760,7 @@ onUnmounted(() => {
     bottom: 0;
     z-index: 20;
     padding: 0.75rem clamp(1rem, 4vw, 1.5rem) calc(0.75rem + env(safe-area-inset-bottom));
-    background: linear-gradient(180deg, transparent 0%, rgba(10, 10, 26, 0.95) 45%);
+    background: linear-gradient(180deg, transparent 0%, rgba(var(--color-bg-rgb), 0.95) 45%);
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
   }
