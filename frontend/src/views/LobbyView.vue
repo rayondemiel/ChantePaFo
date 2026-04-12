@@ -6,6 +6,7 @@
   >
     <!-- Ambient decoration -->
     <div class="bg-grid" aria-hidden="true"></div>
+    <div class="bg-scanlines" aria-hidden="true"></div>
     <div class="bg-orb bg-orb-1" aria-hidden="true"></div>
     <div class="bg-orb bg-orb-2" aria-hidden="true"></div>
     <div class="bg-orb bg-orb-3" aria-hidden="true"></div>
@@ -140,7 +141,26 @@
           <div class="waiting-ring"></div>
           <span class="waiting-eyebrow">// STANDBY</span>
           <p class="waiting-title">En attente</p>
-          <p class="waiting-sub">L'hôte règle l'ambiance…</p>
+          <p class="waiting-sub">
+            <span class="waiting-hostedby">Hosted by</span>
+            <strong class="waiting-hostname">{{ hostName }}</strong>
+          </p>
+
+          <dl class="waiting-readout">
+            <div class="readout-row">
+              <dt>Mode</dt>
+              <dd>
+                <span class="readout-emoji">{{ displayMode.emoji }}</span>
+                {{ displayMode.label }}
+              </dd>
+            </div>
+            <div class="readout-row">
+              <dt>Manches</dt>
+              <dd>{{ displayRounds }}</dd>
+            </div>
+          </dl>
+
+          <p class="waiting-typing">L'hôte règle l'ambiance<span class="dot-pulse">...</span></p>
         </div>
       </section>
     </main>
@@ -238,6 +258,13 @@ const { isMobile } = useBreakpoint()
 const canStart = computed(() => (roomStore.room?.players.length ?? 0) >= 2)
 const emptySlots = computed(() => Math.max(0, 10 - (roomStore.room?.players.length ?? 0)))
 const statusLabel = computed(() => (canStart.value ? 'Prêt à lancer' : 'En attente de joueurs'))
+/** Spectator readout: use server-synced room settings (host uses local refs). */
+const displayMode = computed(() => {
+  const modeId = roomStore.room?.settings?.game_mode ?? 'blindtest'
+  return MODES.find((m) => m.id === modeId) ?? MODES[0]
+})
+const displayRounds = computed(() => roomStore.room?.settings?.num_rounds ?? 10)
+const hostName = computed(() => roomStore.room?.players.find((p) => p.is_host)?.name ?? 'Host')
 
 const confirmLeaveOpen = ref(false)
 const confirmKickOpen = ref(false)
@@ -443,6 +470,23 @@ onUnmounted(() => {
     linear-gradient(90deg, rgba(0, 240, 255, 0.04) 1px, transparent 1px);
   background-size: 48px 48px;
   mask-image: radial-gradient(ellipse at center top, #000 30%, transparent 75%);
+  pointer-events: none;
+  z-index: -2;
+}
+/* Horizontal CRT scanlines — the tiny detail that sells the synthwave feel */
+.bg-scanlines {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    180deg,
+    transparent 0px,
+    transparent 2px,
+    rgba(0, 0, 0, 0.14) 3px,
+    transparent 4px
+  );
+  mask-image: radial-gradient(ellipse at center, #000 40%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse at center, #000 40%, transparent 100%);
+  mix-blend-mode: overlay;
   pointer-events: none;
   z-index: -2;
 }
@@ -941,6 +985,86 @@ onUnmounted(() => {
   align-items: center;
   gap: 0.4rem;
   text-align: center;
+  max-width: 320px;
+}
+
+.waiting-hostedby {
+  font-size: var(--text-xs);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  opacity: 0.6;
+  margin-right: 0.4rem;
+}
+.waiting-hostname {
+  font-family: var(--font-display);
+  color: var(--color-accent);
+  letter-spacing: 1px;
+  text-shadow: 0 0 12px rgba(0, 240, 255, 0.4);
+}
+
+.waiting-readout {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+  margin: 1.2rem 0 0.5rem;
+  padding: 0;
+}
+.readout-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0.55rem 0.85rem;
+  background: rgba(10, 10, 26, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-md);
+  gap: 0.75rem;
+}
+.readout-row dt {
+  font-family: var(--font-display);
+  font-size: var(--text-xs);
+  letter-spacing: 2px;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  margin: 0;
+}
+.readout-row dd {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  color: var(--color-text);
+  letter-spacing: 1px;
+  text-align: right;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.readout-emoji {
+  font-size: 1.15em;
+}
+
+.waiting-typing {
+  margin-top: 0.4rem;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.dot-pulse {
+  display: inline-block;
+  animation: dot-pulse 1.4s steps(4, end) infinite;
+  overflow: hidden;
+  vertical-align: bottom;
+  white-space: nowrap;
+  width: 1.2em;
+}
+@keyframes dot-pulse {
+  0% {
+    width: 0;
+  }
+  100% {
+    width: 1.2em;
+  }
 }
 .waiting-ring {
   width: 72px;
