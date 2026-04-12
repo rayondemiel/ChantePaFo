@@ -234,6 +234,25 @@ async def test_get_current_user_rejects_token_without_sub(client):
 
 
 @pytest.mark.asyncio
+async def test_get_current_user_rejects_non_uuid_sub(client):
+    """A token with a non-UUID sub claim is rejected."""
+    bad_payload = {
+        "sub": "not-a-uuid",
+        "username": "hacker",
+        "exp": datetime.now(timezone.utc) + timedelta(hours=1),
+        "iat": datetime.now(timezone.utc),
+        "iss": ISSUER,
+    }
+    bad_token = jwt.encode(bad_payload, settings.secret_key, algorithm=ALGORITHM)
+    resp = await client.post(
+        "/rooms",
+        json={"host_name": "Alice"},
+        headers={"Authorization": f"Bearer {bad_token}"},
+    )
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_get_current_user_rejects_token_for_deleted_user(client):
     """A valid token whose user_id doesn't exist in the DB is rejected."""
     # Token for a user that was never registered
