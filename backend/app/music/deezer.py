@@ -172,7 +172,11 @@ class DeezerClient:
             params={"q": query, "limit": limit},
             endpoint_label="search",
         )
-        return [p for t in data.get("data", []) if t.get("preview") and (p := _parse_track(t)) is not None]
+        return [
+            p
+            for t in data.get("data", [])
+            if t.get("preview") and (p := _parse_track(t)) is not None
+        ]
 
     async def get_track(self, track_id: int) -> dict[str, Any] | None:
         data = await self._api_get(f"/track/{track_id}", endpoint_label="get_track")
@@ -184,7 +188,11 @@ class DeezerClient:
             params={"limit": limit},
             endpoint_label="chart",
         )
-        return [p for t in data.get("data", []) if t.get("preview") and (p := _parse_track(t)) is not None]
+        return [
+            p
+            for t in data.get("data", [])
+            if t.get("preview") and (p := _parse_track(t)) is not None
+        ]
 
     async def search_playlists(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
         data = await self._api_get(
@@ -201,7 +209,11 @@ class DeezerClient:
             params={"limit": limit},
             endpoint_label="playlist_tracks",
         )
-        return [p for t in data.get("data", []) if t.get("preview") and (p := _parse_track(t)) is not None]
+        return [
+            p
+            for t in data.get("data", [])
+            if t.get("preview") and (p := _parse_track(t)) is not None
+        ]
 
     async def get_tracks_for_genre(
         self, genre: str, max_playlists: int = 2
