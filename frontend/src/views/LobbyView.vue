@@ -6,7 +6,11 @@
     </div>
 
     <div class="zone-content">
-      <PlayerList :players="roomStore.room.players" />
+      <PlayerList
+        :players="roomStore.room.players"
+        :can-kick="roomStore.isHost"
+        @kick="kickPlayer"
+      />
 
       <template v-if="roomStore.isHost">
         <h3 class="text-display">Mode de jeu</h3>
@@ -71,6 +75,7 @@ const roomStore = useRoomStore()
 const gameStore = useGameStore()
 const { emit: socketEmit, on, off } = useSocket()
 
+const auth = useAuthStore()
 const gameMode = ref('blindtest')
 const numRounds = ref(10)
 const karaokeVariant = ref('classic')
@@ -98,6 +103,10 @@ function startGame() {
   socketEmit('start_game', { code: props.code })
 }
 
+function kickPlayer(playerId: string) {
+  socketEmit('kick_player', { code: props.code, player_id: playerId })
+}
+
 function onRoomUpdated(data: unknown) {
   roomStore.setRoom(data as RoomState)
 }
@@ -112,9 +121,16 @@ function onError(data: unknown) {
   errorMsg.value = d.message ?? 'Erreur inconnue'
 }
 
+function onPlayerKicked(data: unknown) {
+  const d = data as { player_id?: string }
+  if (d.player_id === auth.userId) {
+    roomStore.clearRoom()
+    router.push('/')
+  }
+}
+
 onMounted(async () => {
   // Fetch current room state to catch any updates missed during navigation/connection
-  const auth = useAuthStore()
   if (auth.token) {
     const resp = await auth.authFetch(`/api/rooms/${props.code}`)
     if (resp.ok) {
@@ -127,6 +143,7 @@ onMounted(async () => {
   on('game_state', onGameState)
   on('game_started', onGameState)
   on('error', onError)
+  on('player_kicked', onPlayerKicked)
 })
 
 onUnmounted(() => {
@@ -134,6 +151,7 @@ onUnmounted(() => {
   off('game_state', onGameState)
   off('game_started', onGameState)
   off('error', onError)
+  off('player_kicked', onPlayerKicked)
 })
 </script>
 

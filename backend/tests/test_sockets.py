@@ -521,6 +521,65 @@ async def test_soundboard_not_in_room(sio_env):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# kick_player
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+async def test_kick_player_by_host(sio_env):
+    """Host can kick another player; player_kicked and room_updated are emitted."""
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+
+    # Add a second player to the room
+    svc = RoomService(sio_env["redis"])
+    await svc.join_room(code, player_id="other-player", player_name="Bob")
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["kick_player"]("sid-1", {"code": code, "player_id": "other-player"})
+
+    kicked_events = [e for e in sio_env["emitted"] if e["event"] == "player_kicked"]
+    assert len(kicked_events) == 1
+    assert kicked_events[0]["data"]["player_id"] == "other-player"
+
+    room_events = [e for e in sio_env["emitted"] if e["event"] == "room_updated"]
+    assert len(room_events) == 1
+
+
+async def test_kick_player_rejected_for_non_host(sio_env):
+    """A non-host player cannot kick others."""
+    svc = RoomService(sio_env["redis"])
+    room = await svc.create_room(host_id="other-user", host_name="Bob")
+    code = room["code"]
+    await svc.join_room(code, player_id="victim", player_name="Charlie")
+
+    # alice (test-user-1) joins as a regular player
+    await _connect(sio_env)
+    await sio_env["handlers"]["join_room"]("sid-1", {"code": code})
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["kick_player"]("sid-1", {"code": code, "player_id": "victim"})
+
+    errors = [e for e in sio_env["emitted"] if e["event"] == "error"]
+    assert any("host" in (e["data"] or {}).get("message", "").lower() for e in errors)
+    kicked_events = [e for e in sio_env["emitted"] if e["event"] == "player_kicked"]
+    assert len(kicked_events) == 0
+
+
+async def test_kick_player_self_kick_rejected(sio_env):
+    """Host cannot kick themselves."""
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["kick_player"]("sid-1", {"code": code, "player_id": "test-user-1"})
+
+    errors = [e for e in sio_env["emitted"] if e["event"] == "error"]
+    assert any("yourself" in (e["data"] or {}).get("message", "").lower() for e in errors)
+    kicked_events = [e for e in sio_env["emitted"] if e["event"] == "player_kicked"]
+    assert len(kicked_events) == 0
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # start_game — new game session tests
 # ═══════════════════════════════════════════════════════════════════════════════
 

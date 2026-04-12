@@ -23,6 +23,7 @@ from app.rooms.service import RoomService, public_room
 from app.sockets.payloads import (
     GameEventPayload,
     JoinRoomPayload,
+    KickPlayerPayload,
     ReactionPayload,
     RequestAmbiancePayload,
     SoundboardPayload,
@@ -351,6 +352,53 @@ async def _handle_soundboard(sid: str, data: object) -> None:
     )
 
 
+async def _handle_kick_player(sid: str, data: object) -> None:
+    SOCKETIO_EVENTS_TOTAL.labels(event="kick_player").inc()
+    try:
+        payload = KickPlayerPayload.model_validate(data)
+    except ValidationError:
+        await sio.emit("error", {"message": "Invalid kick_player payload"}, to=sid)
+        return
+
+    sio_session = await sio.get_session(sid)
+    user_id: str = sio_session["user_id"]
+
+    if payload.code not in sio.rooms(sid):
+        await sio.emit("error", {"message": _ERR_NOT_IN_ROOM}, to=sid)
+        return
+
+    redis = get_redis()
+    svc = RoomService(redis)
+    room = await svc.get_room(payload.code)
+    if room is None:
+        await sio.emit("error", {"message": _ERR_ROOM_NOT_FOUND}, to=sid)
+        return
+    if room["host_id"] != user_id:
+        await sio.emit("error", {"message": "Only the host can kick players"}, to=sid)
+        return
+    if payload.player_id == user_id:
+        await sio.emit("error", {"message": "Cannot kick yourself"}, to=sid)
+        return
+
+    # Remove the player from the room
+    updated_room = await svc.leave_room(payload.code, payload.player_id)
+
+    # Notify all players in the room (kicked player's frontend checks if it's them)
+    await sio.emit(
+        "player_kicked",
+        {
+            "player_id": payload.player_id,
+            "reason": "Exclu par l'hôte",
+        },
+        room=payload.code,
+    )
+
+    if updated_room:
+        await sio.emit("room_updated", public_room(updated_room), room=payload.code)
+
+    logger.info("player kicked room=%s kicked=%s by=%s", payload.code, payload.player_id, user_id)
+
+
 def register_handlers() -> None:
     sio.on("connect", handler=_handle_connect)
     sio.on("disconnect", handler=_handle_disconnect)
@@ -361,3 +409,4 @@ def register_handlers() -> None:
     sio.on("request_ambiance", handler=_handle_request_ambiance)
     sio.on("reaction", handler=_handle_reaction)
     sio.on("soundboard", handler=_handle_soundboard)
+    sio.on("kick_player", handler=_handle_kick_player)
