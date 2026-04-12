@@ -132,7 +132,9 @@ class DeezerClient:
                 resp = await client.get(f"{self.base_url}{path}", params=params)
             except httpx.HTTPError:
                 DEEZER_API_CALLS_TOTAL.labels(endpoint=endpoint_label, status="error").inc()
-                logger.warning("deezer api request failed endpoint=%s path=%s", endpoint_label, path)
+                logger.warning(
+                    "deezer api request failed endpoint=%s path=%s", endpoint_label, path
+                )
                 return {}
 
             duration = time.perf_counter() - start
@@ -155,7 +157,9 @@ class DeezerClient:
 
             # Deezer error responses have an "error" key
             if "error" in result:
-                logger.warning("deezer api error endpoint=%s error=%s", endpoint_label, result["error"])
+                logger.warning(
+                    "deezer api error endpoint=%s error=%s", endpoint_label, result["error"]
+                )
                 return {}
 
             return result
