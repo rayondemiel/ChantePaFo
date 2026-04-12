@@ -6,6 +6,7 @@ module-level imports (session_factory, get_redis).
 """
 
 import os
+from unittest.mock import AsyncMock, patch
 
 # Must be set before any app imports.
 os.environ.setdefault(
@@ -39,6 +40,21 @@ from app.models import User  # noqa: E402
 from app.rooms.service import RoomService  # noqa: E402
 
 TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
+
+# Fake tracks returned by the mocked DeezerClient.
+_FAKE_TRACKS = [
+    {
+        "id": i,
+        "title": f"Song{i}",
+        "artist": f"Artist{i}",
+        "preview_url": f"https://preview/{i}",
+        "cover_url": "",
+        "album": "",
+        "duration": 30,
+        "rank": 500000,
+    }
+    for i in range(10)
+]
 
 
 @pytest.fixture
@@ -119,6 +135,14 @@ async def sio_env(monkeypatch):
     await engine.dispose()
 
 
+@pytest.fixture(autouse=True)
+def clear_active_sessions():
+    """Ensure _active_sessions is empty before and after each test."""
+    app.sockets.handlers._active_sessions.clear()
+    yield
+    app.sockets.handlers._active_sessions.clear()
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Helpers
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -135,6 +159,15 @@ async def _create_and_join(env: dict, sid: str = "sid-1") -> str:
     code = room["code"]
     await env["handlers"]["join_room"](sid, {"code": code})
     return code
+
+
+async def _start_game_mocked(env: dict, code: str, sid: str = "sid-1") -> None:
+    """Call start_game handler with a mocked DeezerClient."""
+    with patch("app.sockets.handlers.DeezerClient") as MockDeezer:
+        mock_instance = AsyncMock()
+        mock_instance.get_random_tracks = AsyncMock(return_value=_FAKE_TRACKS)
+        MockDeezer.return_value = mock_instance
+        await env["handlers"]["start_game"](sid, {"code": code})
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -355,7 +388,7 @@ async def test_start_game_success(sio_env):
     code = await _create_and_join(sio_env)
 
     sio_env["emitted"].clear()
-    await sio_env["handlers"]["start_game"]("sid-1", {"code": code})
+    await _start_game_mocked(sio_env, code)
 
     game_events = [e for e in sio_env["emitted"] if e["event"] == "game_started"]
     assert len(game_events) == 1
@@ -485,3 +518,200 @@ async def test_soundboard_not_in_room(sio_env):
 
     errors = [e for e in sio_env["emitted"] if e["event"] == "error"]
     assert any("Not in room" in (e["data"] or {}).get("message", "") for e in errors)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# start_game — new game session tests
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+async def test_start_game_creates_session(sio_env):
+    """Starting a game creates a GameSession in _active_sessions and emits game_state."""
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+
+    sio_env["emitted"].clear()
+    await _start_game_mocked(sio_env, code)
+
+    # Session stored in the module-level dict
+    assert code in app.sockets.handlers._active_sessions
+
+    # game_state was emitted
+    state_events = [e for e in sio_env["emitted"] if e["event"] == "game_state"]
+    assert len(state_events) == 1
+
+    # ambiance_update was emitted (countdown)
+    ambiance_events = [e for e in sio_env["emitted"] if e["event"] == "ambiance_update"]
+    assert len(ambiance_events) >= 1
+    assert ambiance_events[0]["data"]["behavior"] == "buildup"
+
+
+async def test_start_game_rejects_non_host(sio_env):
+    """A non-host player cannot start the game."""
+    svc = RoomService(sio_env["redis"])
+    room = await svc.create_room(host_id="other-user", host_name="Bob")
+    code = room["code"]
+
+    await _connect(sio_env)
+    await sio_env["handlers"]["join_room"]("sid-1", {"code": code})
+
+    sio_env["emitted"].clear()
+    await _start_game_mocked(sio_env, code)
+
+    errors = [e for e in sio_env["emitted"] if e["event"] == "error"]
+    assert any("host" in (e["data"] or {}).get("message", "").lower() for e in errors)
+    # No session should have been created
+    assert code not in app.sockets.handlers._active_sessions
+
+
+async def test_start_game_unknown_mode(sio_env):
+    """If the room has an unregistered game mode, an error is emitted."""
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+
+    # Force an unknown mode directly in Redis
+    redis = sio_env["redis"]
+    import json
+
+    raw = await redis.get(f"room:{code}")
+    room_data = json.loads(raw)
+    room_data["settings"]["game_mode"] = "nonexistent_mode"
+    await redis.set(f"room:{code}", json.dumps(room_data))
+
+    sio_env["emitted"].clear()
+    await _start_game_mocked(sio_env, code)
+
+    errors = [e for e in sio_env["emitted"] if e["event"] == "error"]
+    assert any("Unknown game mode" in (e["data"] or {}).get("message", "") for e in errors)
+    assert code not in app.sockets.handlers._active_sessions
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# game_event
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+async def test_game_event_blindtest_answer(sio_env):
+    """Sending an answer event during a blindtest emits game_event_result."""
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+    await _start_game_mocked(sio_env, code)
+
+    sio_env["emitted"].clear()
+    # Advance phase to playing first (countdown_done)
+    await sio_env["handlers"]["game_event"](
+        "sid-1", {"code": code, "event_type": "countdown_done", "payload": {}}
+    )
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["game_event"](
+        "sid-1",
+        {"code": code, "event_type": "answer", "payload": {"text": "Song0", "time_ms": 1500}},
+    )
+
+    result_events = [e for e in sio_env["emitted"] if e["event"] == "game_event_result"]
+    assert len(result_events) == 1
+    result = result_events[0]["data"]
+    assert "title_match" in result
+
+    state_events = [e for e in sio_env["emitted"] if e["event"] == "game_state"]
+    assert len(state_events) == 1
+
+
+async def test_game_event_unknown_session(sio_env):
+    """Sending game_event for a room with no active session emits an error."""
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+    # Do NOT start a game — no session in _active_sessions
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["game_event"](
+        "sid-1", {"code": code, "event_type": "answer", "payload": {"text": "test"}}
+    )
+
+    errors = [e for e in sio_env["emitted"] if e["event"] == "error"]
+    assert any("No active game session" in (e["data"] or {}).get("message", "") for e in errors)
+
+
+async def test_game_event_invalid_payload(sio_env):
+    """game_event with missing fields emits a validation error."""
+    await _connect(sio_env)
+    await sio_env["handlers"]["game_event"]("sid-1", {})
+
+    errors = [e for e in sio_env["emitted"] if e["event"] == "error"]
+    assert len(errors) > 0
+
+
+async def test_game_event_not_in_room(sio_env):
+    """game_event from a player not in the room emits Not in room error."""
+    await _connect(sio_env)
+    svc = RoomService(sio_env["redis"])
+    room = await svc.create_room(host_id="test-user-1", host_name="alice")
+    code = room["code"]
+    # Not joined — no entry in rooms_map
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["game_event"](
+        "sid-1", {"code": code, "event_type": "answer", "payload": {"text": "test"}}
+    )
+
+    errors = [e for e in sio_env["emitted"] if e["event"] == "error"]
+    assert any("Not in room" in (e["data"] or {}).get("message", "") for e in errors)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# request_ambiance
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+async def test_request_ambiance_by_genre(sio_env):
+    """Requesting ambiance for 'rock' returns the rock palette."""
+    await _connect(sio_env)
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["request_ambiance"]("sid-1", {"genre": "rock"})
+
+    ambiance_events = [e for e in sio_env["emitted"] if e["event"] == "ambiance_update"]
+    assert len(ambiance_events) == 1
+    data = ambiance_events[0]["data"]
+    assert data["behavior"] == "flash_aggressive"
+    assert "#FF2200" in data["palette"]
+
+
+async def test_request_ambiance_by_moment(sio_env):
+    """Requesting ambiance for moment 'countdown' returns buildup behavior."""
+    await _connect(sio_env)
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["request_ambiance"]("sid-1", {"moment": "countdown"})
+
+    ambiance_events = [e for e in sio_env["emitted"] if e["event"] == "ambiance_update"]
+    assert len(ambiance_events) == 1
+    data = ambiance_events[0]["data"]
+    assert data["behavior"] == "buildup"
+    assert data["vibe"] == "tension"
+
+
+async def test_request_ambiance_default(sio_env):
+    """Requesting ambiance with no genre or moment returns the lobby default."""
+    await _connect(sio_env)
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["request_ambiance"]("sid-1", {})
+
+    ambiance_events = [e for e in sio_env["emitted"] if e["event"] == "ambiance_update"]
+    assert len(ambiance_events) == 1
+    data = ambiance_events[0]["data"]
+    # Default is lobby ambiance
+    assert data["vibe"] == "waiting"
+
+
+async def test_request_ambiance_invalid_payload(sio_env):
+    """request_ambiance with unknown extra fields triggers a validation error."""
+    await _connect(sio_env)
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["request_ambiance"]("sid-1", {"unknown_field": "value"})
+
+    errors = [e for e in sio_env["emitted"] if e["event"] == "error"]
+    assert len(errors) > 0

@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -60,3 +60,19 @@ class SoundboardPayload(_StrictBase):
     @classmethod
     def _upper(cls, v: object) -> object:
         return v.upper() if isinstance(v, str) else v
+
+
+class GameEventPayload(_StrictBase):
+    code: str = Field(..., pattern=CODE_PATTERN)
+    event_type: str = Field(..., min_length=1, max_length=32)
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("code", mode="before")
+    @classmethod
+    def _upper(cls, v: object) -> object:
+        return v.upper() if isinstance(v, str) else v
+
+
+class RequestAmbiancePayload(_StrictBase):
+    genre: str = Field(default="", max_length=64)
+    moment: str = Field(default="", max_length=64)

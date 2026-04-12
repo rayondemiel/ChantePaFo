@@ -93,6 +93,9 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+from app.game import blindtest as _blindtest  # noqa: F401, E402
+from app.game import karaoke as _karaoke  # noqa: F401, E402
+from app.game import telephone as _telephone  # noqa: F401, E402
 from app.sockets.handlers import register_handlers  # noqa: E402
 
 register_handlers()
