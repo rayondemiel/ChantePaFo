@@ -89,22 +89,22 @@ function setDifficulty(key: string, level: number) {
 /* Map each chip-color to a --tone CSS variable so the dots match
    the genre's hue automatically. These mirror the colors in global.css. */
 .tone-pop {
-  --tone: #ff69b4;
+  --tone: var(--tone-pop);
 }
 .tone-rock {
-  --tone: #dc143c;
+  --tone: var(--tone-rock);
 }
 .tone-rap {
-  --tone: #b44dff;
+  --tone: var(--tone-rap);
 }
 .tone-electro {
-  --tone: #00f0ff;
+  --tone: var(--tone-electro);
 }
 .tone-disco {
-  --tone: #ffd700;
+  --tone: var(--tone-disco);
 }
 .tone-jazz {
-  --tone: #daa520;
+  --tone: var(--tone-jazz);
 }
 
 /* Difficulty dots — 4 clickable levels.
@@ -114,8 +114,8 @@ function setDifficulty(key: string, level: number) {
   align-items: center;
   gap: 3px;
   padding: 0.15rem 0.4rem;
-  background: rgba(10, 10, 26, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(var(--color-bg-rgb), 0.4);
+  border: 1px solid rgba(var(--color-white-rgb), 0.08);
   border-radius: var(--radius-full);
 }
 .diff-dot {

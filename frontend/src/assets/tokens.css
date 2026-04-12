@@ -11,6 +11,33 @@
   --color-success: #00c853;
   --color-error: #ff5252;
   --color-warning: #ffe44d;
+  /* Mid-point between warning (yellow) and primary (hot pink), used in
+     the synthwave-sun gradient and a few hover glows. */
+  --color-sun-mid: #ff6ba5;
+
+  /* RGB triplets for use inside rgba() — e.g. rgba(var(--color-primary-rgb), 0.3).
+     Keep in sync with the hex values above whenever the palette changes. */
+  --color-primary-rgb: 255, 45, 149;
+  --color-secondary-rgb: 180, 77, 255;
+  --color-accent-rgb: 0, 240, 255;
+  --color-success-rgb: 0, 200, 83;
+  --color-error-rgb: 255, 82, 82;
+  --color-warning-rgb: 255, 228, 77;
+  --color-sun-mid-rgb: 255, 107, 165;
+  --color-bg-rgb: 10, 10, 26;
+  --color-surface-rgb: 26, 26, 46;
+  --color-white-rgb: 255, 255, 255;
+  --color-black-rgb: 0, 0, 0;
+
+  /* Genre tone colors — used by both global.css .chip-* rules and the
+     GenreSelector difficulty dots. Kept distinct from the core synthwave
+     palette so each musical genre gets its own identifiable hue. */
+  --tone-pop: #ff69b4;
+  --tone-rock: #dc143c;
+  --tone-rap: #b44dff;
+  --tone-electro: #00f0ff;
+  --tone-disco: #ffd700;
+  --tone-jazz: #daa520;
 
   /* Surfaces */
   --color-bg: #0a0a1a;
@@ -20,7 +47,7 @@
   /* Text */
   --color-text: #ffffff;
   --color-text-muted: #888888;
-  --color-border: rgba(255, 255, 255, 0.06);
+  --color-border: rgba(var(--color-white-rgb), 0.06);
 
   /* Typography */
   --font-display: 'Righteous', cursive;

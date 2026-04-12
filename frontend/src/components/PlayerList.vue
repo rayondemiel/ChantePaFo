@@ -97,9 +97,9 @@ function getPlayerHue(id: string): number {
   background: linear-gradient(
     90deg,
     hsla(var(--hue), 60%, 40%, 0.12) 0%,
-    rgba(10, 10, 26, 0.45) 60%
+    rgba(var(--color-bg-rgb), 0.45) 60%
   );
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(var(--color-white-rgb), 0.07);
   border-radius: var(--radius-md);
   overflow: hidden;
   transition:
@@ -130,30 +130,34 @@ function getPlayerHue(id: string): number {
 }
 
 .player-row.is-me {
-  background: linear-gradient(90deg, rgba(255, 45, 149, 0.16) 0%, rgba(10, 10, 26, 0.5) 70%);
-  border-color: rgba(255, 45, 149, 0.32);
+  background: linear-gradient(
+    90deg,
+    rgba(var(--color-primary-rgb), 0.16) 0%,
+    rgba(var(--color-bg-rgb), 0.5) 70%
+  );
+  border-color: rgba(var(--color-primary-rgb), 0.32);
 }
 .player-row.is-me::before {
   background: var(--color-primary);
   box-shadow:
     0 0 12px var(--color-primary),
-    0 0 24px rgba(255, 45, 149, 0.5);
+    0 0 24px rgba(var(--color-primary-rgb), 0.5);
 }
 
 .player-row.is-host {
   background: linear-gradient(
     90deg,
-    rgba(255, 228, 77, 0.14) 0%,
-    rgba(255, 45, 149, 0.08) 50%,
-    rgba(10, 10, 26, 0.45) 100%
+    rgba(var(--color-warning-rgb), 0.14) 0%,
+    rgba(var(--color-primary-rgb), 0.08) 50%,
+    rgba(var(--color-bg-rgb), 0.45) 100%
   );
-  border-color: rgba(255, 228, 77, 0.28);
+  border-color: rgba(var(--color-warning-rgb), 0.28);
 }
 .player-row.is-host::before {
   background: linear-gradient(180deg, var(--color-warning), var(--color-primary));
   box-shadow:
-    0 0 14px rgba(255, 228, 77, 0.7),
-    0 0 28px rgba(255, 45, 149, 0.4);
+    0 0 14px rgba(var(--color-warning-rgb), 0.7),
+    0 0 28px rgba(var(--color-primary-rgb), 0.4);
 }
 
 /* Rank number — terminal display style */
@@ -175,7 +179,7 @@ function getPlayerHue(id: string): number {
   justify-content: center;
   font-family: var(--font-display);
   font-size: var(--text-lg);
-  color: #fff;
+  color: var(--color-text);
   background: linear-gradient(
     135deg,
     hsl(var(--hue), 95%, 60%) 0%,
@@ -183,19 +187,19 @@ function getPlayerHue(id: string): number {
   );
   border-radius: 50%;
   box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.12),
+    0 0 0 1px rgba(var(--color-white-rgb), 0.12),
     0 0 20px hsla(var(--hue), 95%, 55%, 0.45),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.15);
+    inset 0 0 0 1px rgba(var(--color-white-rgb), 0.15);
   text-transform: uppercase;
   flex-shrink: 0;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  text-shadow: 0 1px 2px rgba(var(--color-black-rgb), 0.3);
 }
 .is-host .player-avatar {
   background: linear-gradient(135deg, var(--color-warning) 0%, var(--color-primary) 100%);
   box-shadow:
-    0 0 0 2px rgba(255, 228, 77, 0.4),
-    0 0 22px rgba(255, 228, 77, 0.5),
-    0 0 40px rgba(255, 45, 149, 0.3);
+    0 0 0 2px rgba(var(--color-warning-rgb), 0.4),
+    0 0 22px rgba(var(--color-warning-rgb), 0.5),
+    0 0 40px rgba(var(--color-primary-rgb), 0.3);
 }
 
 .player-main {
@@ -215,7 +219,7 @@ function getPlayerHue(id: string): number {
   line-height: 1.2;
 }
 .is-me .player-name {
-  color: #fff;
+  color: var(--color-text);
 }
 
 .player-meta {
@@ -236,15 +240,19 @@ function getPlayerHue(id: string): number {
   white-space: nowrap;
 }
 .tag-host {
-  background: linear-gradient(135deg, rgba(255, 228, 77, 0.22), rgba(255, 45, 149, 0.15));
+  background: linear-gradient(
+    135deg,
+    rgba(var(--color-warning-rgb), 0.22),
+    rgba(var(--color-primary-rgb), 0.15)
+  );
   color: var(--color-warning);
-  border: 1px solid rgba(255, 228, 77, 0.4);
-  box-shadow: 0 0 14px rgba(255, 228, 77, 0.25);
+  border: 1px solid rgba(var(--color-warning-rgb), 0.4);
+  box-shadow: 0 0 14px rgba(var(--color-warning-rgb), 0.25);
 }
 .tag-me {
-  background: rgba(255, 45, 149, 0.18);
+  background: rgba(var(--color-primary-rgb), 0.18);
   color: var(--color-primary);
-  border: 1px solid rgba(255, 45, 149, 0.4);
+  border: 1px solid rgba(var(--color-primary-rgb), 0.4);
 }
 .tag-guest {
   background: hsla(var(--hue), 80%, 50%, 0.12);
@@ -281,8 +289,8 @@ function getPlayerHue(id: string): number {
 
 .btn-kick {
   background: none;
-  border: 1px solid rgba(255, 82, 82, 0.3);
-  color: rgba(255, 82, 82, 0.75);
+  border: 1px solid rgba(var(--color-error-rgb), 0.3);
+  color: rgba(var(--color-error-rgb), 0.75);
   border-radius: var(--radius-sm);
   width: 28px;
   height: 28px;
@@ -298,7 +306,7 @@ function getPlayerHue(id: string): number {
     transform 0.15s;
 }
 .btn-kick:hover {
-  background: rgba(255, 82, 82, 0.18);
+  background: rgba(var(--color-error-rgb), 0.18);
   color: var(--color-error);
   border-color: var(--color-error);
   transform: scale(1.08);

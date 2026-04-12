@@ -277,7 +277,8 @@ async function joinRoom() {
   font-size: clamp(3.2rem, 10vw, 6.5rem);
   line-height: 0.95;
   letter-spacing: 0.03em;
-  filter: drop-shadow(0 0 32px rgba(255, 45, 149, 0.3)) drop-shadow(0 0 60px rgba(0, 240, 255, 0.2));
+  filter: drop-shadow(0 0 32px rgba(var(--color-primary-rgb), 0.3))
+    drop-shadow(0 0 60px rgba(var(--color-accent-rgb), 0.2));
 }
 .tagline {
   color: var(--color-text-muted);
@@ -302,14 +303,18 @@ async function joinRoom() {
   flex-direction: column;
   gap: 0.7rem;
   padding: clamp(1.2rem, 2.5vw, 1.8rem);
-  background: linear-gradient(160deg, rgba(26, 26, 46, 0.75), rgba(26, 26, 46, 0.45));
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(
+    160deg,
+    rgba(var(--color-surface-rgb), 0.75),
+    rgba(var(--color-surface-rgb), 0.45)
+  );
+  border: 1px solid rgba(var(--color-white-rgb), 0.08);
   border-radius: var(--radius-lg);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   box-shadow:
-    0 20px 60px rgba(0, 0, 0, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    0 20px 60px rgba(var(--color-black-rgb), 0.4),
+    inset 0 1px 0 rgba(var(--color-white-rgb), 0.05);
 }
 .section::before {
   content: '';
@@ -319,10 +324,10 @@ async function joinRoom() {
   padding: 1px;
   background: linear-gradient(
     135deg,
-    rgba(0, 240, 255, 0.3),
+    rgba(var(--color-accent-rgb), 0.3),
     transparent 40%,
     transparent 60%,
-    rgba(255, 45, 149, 0.3)
+    rgba(var(--color-primary-rgb), 0.3)
   );
   -webkit-mask:
     linear-gradient(#000 0 0) content-box,

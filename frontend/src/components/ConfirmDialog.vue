@@ -49,7 +49,7 @@ function cancel() {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(10, 10, 26, 0.75);
+  background: rgba(var(--color-bg-rgb), 0.75);
   backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
@@ -64,14 +64,14 @@ function cancel() {
   padding: var(--space-lg);
   max-width: 380px;
   width: 100%;
-  box-shadow: 0 10px 50px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 10px 50px rgba(var(--color-black-rgb), 0.5);
   animation: pop-in 0.25s var(--ease-bounce);
 }
 .modal-danger {
-  border-color: rgba(255, 82, 82, 0.4);
+  border-color: rgba(var(--color-error-rgb), 0.4);
   box-shadow:
-    0 10px 50px rgba(0, 0, 0, 0.5),
-    0 0 30px rgba(255, 82, 82, 0.15);
+    0 10px 50px rgba(var(--color-black-rgb), 0.5),
+    0 0 30px rgba(var(--color-error-rgb), 0.15);
 }
 .modal-title {
   font-size: var(--text-xl);
