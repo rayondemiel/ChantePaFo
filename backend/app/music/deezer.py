@@ -173,20 +173,39 @@ class DeezerClient:
     async def get_tracks_for_genre(
         self, genre: str, max_playlists: int = 2
     ) -> list[dict[str, Any]]:
-        """Fetch tracks for a genre using playlist search (primary) then keyword fallback."""
-        config = GENRE_CONFIG.get(genre, {"playlist": genre, "search": genre})
+        """Fetch tracks for a genre or custom theme.
 
-        # Primary: find curated playlists for this genre
-        playlists = await self.search_playlists(config["playlist"], limit=max_playlists + 2)
+        Supports two modes:
+        - Predefined genre key (e.g. "rock", "jazz") → uses GENRE_CONFIG
+          playlist + keyword fallback.
+        - Custom theme prefixed with "custom:" (e.g. "custom:films années 90")
+          → searches playlists and tracks with the raw query. Lets the host
+          define any theme they want.
+        """
+        if genre.startswith("custom:"):
+            query = genre[len("custom:") :].strip()
+            return await self._fetch_by_query(query, max_playlists)
+
+        config = GENRE_CONFIG.get(genre, {"playlist": genre, "search": genre})
+        return await self._fetch_by_query(
+            config["playlist"], max_playlists, fallback_search=config["search"]
+        )
+
+    async def _fetch_by_query(
+        self, query: str, max_playlists: int = 2, fallback_search: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Search playlists for a query, pull their tracks, fallback to keyword search."""
+        playlists = await self.search_playlists(query, limit=max_playlists + 2)
 
         tracks: list[dict[str, Any]] = []
         for pl in playlists[:max_playlists]:
             pl_tracks = await self.get_playlist_tracks(pl["id"], limit=100)
             tracks.extend(pl_tracks)
 
-        # Fallback: if playlists returned few tracks, supplement with keyword search
+        # Fallback: if playlists returned few tracks, supplement with search
         if len(tracks) < 10:
-            search_tracks = await self.search(config["search"], limit=50)
+            search_q = fallback_search or query
+            search_tracks = await self.search(search_q, limit=50)
             tracks.extend(search_tracks)
 
         return tracks
