@@ -1,6 +1,6 @@
 <template>
   <div class="genre-selector">
-    <div v-for="genre in availableGenres" :key="genre.key" class="genre-item">
+    <div v-for="genre in GENRES" :key="genre.key" class="genre-item" :class="`tone-${genre.color}`">
       <button
         class="chip"
         :class="[`chip-${genre.color}`, { active: isSelected(genre.key) }]"
@@ -8,45 +8,33 @@
       >
         {{ genre.label }}
       </button>
-      <select
+      <div
         v-if="isSelected(genre.key)"
-        :value="selected[genre.key]"
-        class="difficulty-select"
-        @change="setDifficulty(genre.key, Number(($event.target as HTMLSelectElement).value))"
+        class="difficulty-dots"
+        role="radiogroup"
+        :aria-label="`Difficulté ${genre.label}`"
       >
-        <option :value="1">Facile</option>
-        <option :value="2">Normal</option>
-        <option :value="3">Difficile</option>
-        <option :value="4">Expert</option>
-      </select>
+        <button
+          v-for="level in 4"
+          :key="level"
+          type="button"
+          class="diff-dot"
+          :class="{ 'diff-dot-filled': (selected[genre.key] ?? 0) >= level }"
+          :aria-label="`Niveau ${level} : ${DIFFICULTY_LABELS[level - 1]}`"
+          :aria-pressed="selected[genre.key] === level"
+          :title="DIFFICULTY_LABELS[level - 1]"
+          @click.stop="setDifficulty(genre.key, level)"
+        ></button>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { reactive } from 'vue'
+import { GENRES, DIFFICULTY_LABELS } from '../lib/genres'
 
 const emit = defineEmits<{ update: [genres: Record<string, number>] }>()
-
-const availableGenres = [
-  { key: 'all', label: 'Tout', color: 'pop' },
-  { key: 'pop', label: 'Pop', color: 'pop' },
-  { key: 'rock', label: 'Rock', color: 'rock' },
-  { key: 'rap', label: 'Rap FR', color: 'rap' },
-  { key: 'electro', label: 'Electro', color: 'electro' },
-  { key: 'disco', label: 'Disco', color: 'disco' },
-  { key: 'jazz', label: 'Jazz', color: 'jazz' },
-  { key: 'soul', label: 'Soul/Funk', color: 'disco' },
-  { key: 'metal', label: 'Metal', color: 'rock' },
-  { key: 'kpop', label: 'K-pop', color: 'pop' },
-  { key: 'annees80', label: '80s', color: 'electro' },
-  { key: 'annees90', label: '90s', color: 'electro' },
-  { key: 'classique', label: 'Classique', color: 'jazz' },
-  { key: 'rnb', label: 'R&B', color: 'rap' },
-  { key: 'reggae', label: 'Reggae', color: 'disco' },
-  { key: 'latino', label: 'Latino', color: 'disco' },
-  { key: 'bo_films', label: 'BO Films', color: 'jazz' },
-]
 
 const selected = reactive<Record<string, number>>({ all: 2 })
 
@@ -92,17 +80,62 @@ function setDifficulty(key: string, level: number) {
   gap: var(--space-sm);
 }
 .genre-item {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: var(--space-xs);
+  gap: 0.35rem;
+  /* Default tone fallback — each .tone-* class overrides this */
+  --tone: var(--color-accent);
 }
-.difficulty-select {
-  padding: 0.15rem 0.3rem;
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-  font-family: var(--font-body);
-  font-size: var(--text-xs);
+/* Map each chip-color to a --tone CSS variable so the dots match
+   the genre's hue automatically. These mirror the colors in global.css. */
+.tone-pop {
+  --tone: #ff69b4;
+}
+.tone-rock {
+  --tone: #dc143c;
+}
+.tone-rap {
+  --tone: #b44dff;
+}
+.tone-electro {
+  --tone: #00f0ff;
+}
+.tone-disco {
+  --tone: #ffd700;
+}
+.tone-jazz {
+  --tone: #daa520;
+}
+
+/* Difficulty dots — 4 clickable levels.
+   Replaces the native <select> to preserve the retro identity. */
+.difficulty-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0.15rem 0.4rem;
+  background: rgba(10, 10, 26, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-full);
+}
+.diff-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid var(--tone);
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    transform 0.12s,
+    box-shadow 0.2s;
+}
+.diff-dot:hover {
+  transform: scale(1.25);
+}
+.diff-dot-filled {
+  background: var(--tone);
+  box-shadow: 0 0 8px var(--tone);
 }
 </style>
