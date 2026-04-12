@@ -8,7 +8,7 @@ from typing import Any
 
 # ---------------------------------------------------------------------------
 # Genre → ambiance map
-# Covers all 63 genres defined in app/music/deezer.py's GENRE_CONFIG.
+# Covers genres defined in app/music/deezer.py's GENRE_CONFIG plus common variants.
 # Keys are normalized (lowercase, no dashes/spaces/accents).
 # ---------------------------------------------------------------------------
 
