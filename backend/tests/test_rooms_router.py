@@ -65,10 +65,12 @@ async def test_get_room_endpoint(authed_client):
 
     resp = await authed_client.get(f"/rooms/{code}")
     assert resp.status_code == 200
-    data = resp.json()
-    assert data["code"] == code
+    body = resp.json()
+    assert "room" in body
+    room = body["room"]
+    assert room["code"] == code
     # host_id must not leak
-    assert "host_id" not in data
+    assert "host_id" not in room
 
 
 @pytest.mark.asyncio

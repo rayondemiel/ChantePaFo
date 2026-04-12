@@ -41,7 +41,7 @@ async def get_room(
     room = await svc.get_room(code.upper())
     if not room:
         raise HTTPException(404, "Room not found")
-    return _public_room(room)
+    return {"room": _public_room(room)}
 
 
 @router.post("/{code}/join")
