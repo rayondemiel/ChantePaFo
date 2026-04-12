@@ -14,13 +14,16 @@ router = APIRouter(prefix="/audio", tags=["audio"])
 # Allowed MIME types for audio uploads.
 # WebM/Opus = Chrome, Firefox, Edge. MP4/AAC = Safari fallback.
 # The frontend picks the best available via MediaRecorder.isTypeSupported().
-_ALLOWED_CONTENT_TYPES = frozenset({
-    "audio/webm",
-    "audio/mp4",
-})
+_ALLOWED_CONTENT_TYPES = frozenset(
+    {
+        "audio/webm",
+        "audio/mp4",
+    }
+)
 
 # Max upload size: 5 MB.
 _MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+
 
 def _detect_format(content: bytes) -> str | None:
     """Detect audio format from magic bytes. Returns 'webm' or 'mp4' or None."""

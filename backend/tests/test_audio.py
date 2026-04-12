@@ -94,7 +94,9 @@ async def test_upload_sha256_integrity_fail(authed_client: object) -> None:
     resp = await authed_client.post(  # type: ignore[union-attr]
         "/audio/upload",
         files={"file": ("test.webm", io.BytesIO(content), "audio/webm")},
-        headers={"X-Content-SHA256": "0000000000000000000000000000000000000000000000000000000000000000"},
+        headers={
+            "X-Content-SHA256": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
     )
     assert resp.status_code == 400
     assert "SHA-256 mismatch" in resp.json()["detail"]
