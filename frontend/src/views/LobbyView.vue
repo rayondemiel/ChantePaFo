@@ -57,6 +57,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useAuthStore } from '../stores/auth'
 import { useRoomStore } from '../stores/room'
 import { useGameStore } from '../stores/game'
 import { useSocket } from '../composables/useSocket'
@@ -111,7 +112,17 @@ function onError(data: unknown) {
   errorMsg.value = d.message ?? 'Erreur inconnue'
 }
 
-onMounted(() => {
+onMounted(async () => {
+  // Fetch current room state to catch any updates missed during navigation/connection
+  const auth = useAuthStore()
+  if (auth.token) {
+    const resp = await auth.authFetch(`/api/rooms/${props.code}`)
+    if (resp.ok) {
+      const data = await resp.json()
+      roomStore.setRoom(data.room)
+    }
+  }
+
   on('room_updated', onRoomUpdated)
   on('game_state', onGameState)
   on('game_started', onGameState)
