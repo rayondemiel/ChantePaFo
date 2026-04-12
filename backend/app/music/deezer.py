@@ -7,77 +7,94 @@ import httpx
 from app.config import settings
 from app.metrics import DEEZER_API_CALL_DURATION_SECONDS, DEEZER_API_CALLS_TOTAL
 
-GENRE_SEARCH_TERMS: dict[str, str] = {
+# Each genre maps to a playlist search query (primary) and a keyword fallback.
+# Playlists are human-curated → genre accuracy is much better than keyword search.
+GENRE_CONFIG: dict[str, dict[str, str]] = {
     # Mainstream
-    "pop": "pop",
-    "rock": "rock",
-    "rap": "rap français",
-    "hiphop": "hip hop",
-    "rnb": "r&b",
-    "electro": "electronic",
-    "dance": "dance",
-    "house": "house music",
-    "techno": "techno",
-    "trance": "trance",
-    "drum_n_bass": "drum and bass",
+    "pop": {"playlist": "pop hits", "search": "pop"},
+    "rock": {"playlist": "rock classics", "search": "rock"},
+    "rap": {"playlist": "rap français", "search": "rap français"},
+    "hiphop": {"playlist": "hip hop essentials", "search": "hip hop"},
+    "rnb": {"playlist": "r&b essentials", "search": "r&b"},
+    "electro": {"playlist": "electro mix", "search": "electronic"},
+    "dance": {"playlist": "dance hits", "search": "dance"},
+    "house": {"playlist": "house music essentials", "search": "house music"},
+    "techno": {"playlist": "techno essentials", "search": "techno"},
+    "trance": {"playlist": "trance essentials", "search": "trance"},
+    "drum_n_bass": {"playlist": "drum and bass", "search": "drum and bass"},
     # Origines
-    "jazz": "jazz",
-    "blues": "blues",
-    "soul": "soul",
-    "funk": "funk",
-    "gospel": "gospel",
-    "disco": "disco",
+    "jazz": {"playlist": "jazz essentials", "search": "jazz"},
+    "blues": {"playlist": "blues essentials", "search": "blues"},
+    "soul": {"playlist": "soul classics", "search": "soul"},
+    "funk": {"playlist": "funk classics", "search": "funk"},
+    "gospel": {"playlist": "gospel essentials", "search": "gospel"},
+    "disco": {"playlist": "disco essentials", "search": "disco"},
     # Rock sub-genres
-    "metal": "metal",
-    "punk": "punk rock",
-    "grunge": "grunge",
-    "indie": "indie rock",
-    "alternative": "alternative",
+    "metal": {"playlist": "metal essentials", "search": "metal"},
+    "punk": {"playlist": "punk rock essentials", "search": "punk rock"},
+    "grunge": {"playlist": "grunge essentials", "search": "grunge"},
+    "indie": {"playlist": "indie rock essentials", "search": "indie rock"},
+    "alternative": {"playlist": "alternative essentials", "search": "alternative"},
     # World / tropical
-    "reggae": "reggae",
-    "reggaeton": "reggaeton",
-    "latino": "latin music",
-    "bossa_nova": "bossa nova",
-    "afrobeats": "afrobeats",
-    "kpop": "k-pop",
-    "jpop": "j-pop",
-    "bollywood": "bollywood",
-    "raï": "raï",
-    "zouk": "zouk",
-    "afro_trap": "afro trap",
+    "reggae": {"playlist": "reggae essentials", "search": "reggae"},
+    "reggaeton": {"playlist": "reggaeton hits", "search": "reggaeton"},
+    "latino": {"playlist": "latin hits", "search": "latin music"},
+    "bossa_nova": {"playlist": "bossa nova", "search": "bossa nova"},
+    "afrobeats": {"playlist": "afrobeats hits", "search": "afrobeats"},
+    "kpop": {"playlist": "k-pop hits", "search": "k-pop"},
+    "jpop": {"playlist": "j-pop hits", "search": "j-pop"},
+    "bollywood": {"playlist": "bollywood hits", "search": "bollywood"},
+    "rai": {"playlist": "rai algérien", "search": "khaled rai"},
+    "zouk": {"playlist": "zouk hits", "search": "zouk"},
+    "afro_trap": {"playlist": "afro trap", "search": "afro trap"},
     # France
-    "chanson_francaise": "chanson française",
-    "variete_francaise": "variété française",
-    "rap_fr": "rap français",
-    "pop_fr": "pop française",
+    "chanson_francaise": {"playlist": "chanson française", "search": "chanson française"},
+    "variete_francaise": {"playlist": "variété française", "search": "variété française"},
+    "rap_fr": {"playlist": "rap français", "search": "rap français"},
+    "pop_fr": {"playlist": "pop française", "search": "pop française"},
     # Décennies
-    "annees60": "60s",
-    "annees70": "70s",
-    "annees80": "80s",
-    "annees90": "90s",
-    "annees2000": "2000s",
-    "annees2010": "2010s",
+    "annees60": {"playlist": "60s essentials", "search": "60s"},
+    "annees70": {"playlist": "70s essentials", "search": "70s"},
+    "annees80": {"playlist": "80s essentials", "search": "80s"},
+    "annees90": {"playlist": "90s essentials", "search": "90s"},
+    "annees2000": {"playlist": "2000s essentials", "search": "2000s"},
+    "annees2010": {"playlist": "2010s essentials", "search": "2010s"},
     # Vibes / moods
-    "classique": "classical",
-    "opera": "opera",
-    "country": "country",
-    "folk": "folk",
-    "acoustic": "acoustic",
-    "lo_fi": "lo-fi",
-    "ambient": "ambient",
-    "new_wave": "new wave",
-    "synthwave": "synthwave",
-    "ska": "ska",
-    "swing": "swing",
+    "classique": {"playlist": "classical essentials", "search": "classical"},
+    "opera": {"playlist": "opera essentials", "search": "opera"},
+    "country": {"playlist": "country essentials", "search": "country"},
+    "folk": {"playlist": "folk essentials", "search": "folk"},
+    "acoustic": {"playlist": "acoustic vibes", "search": "acoustic"},
+    "lo_fi": {"playlist": "lo-fi beats", "search": "lo-fi"},
+    "ambient": {"playlist": "ambient relaxation", "search": "ambient"},
+    "new_wave": {"playlist": "new wave essentials", "search": "new wave"},
+    "synthwave": {"playlist": "synthwave", "search": "synthwave"},
+    "ska": {"playlist": "ska essentials", "search": "ska"},
+    "swing": {"playlist": "swing jazz", "search": "swing"},
     # Cinéma / cultures
-    "bo_films": "soundtrack",
-    "bo_series": "tv series soundtrack",
-    "bo_jeux_video": "video game soundtrack",
-    "anime": "anime",
-    "disney": "disney",
-    "comedie_musicale": "musical",
+    "bo_films": {"playlist": "movie soundtracks", "search": "soundtrack"},
+    "bo_series": {"playlist": "tv series soundtrack", "search": "tv series soundtrack"},
+    "bo_jeux_video": {"playlist": "video game music", "search": "video game soundtrack"},
+    "anime": {"playlist": "anime hits", "search": "anime"},
+    "disney": {"playlist": "disney hits", "search": "disney"},
+    "comedie_musicale": {"playlist": "musical theatre", "search": "musical"},
     # Catch-all
-    "all": "",
+    "all": {"playlist": "top hits", "search": "top hits"},
+}
+
+# Difficulty is cumulative and genre-relative.
+# We use PERCENTILES within each genre's track pool. A "hit" in jazz
+# (rank ~200k) differs from a "hit" in pop (rank ~900k) — percentiles
+# adapt automatically.
+#
+# keep_top_pct: fraction of tracks to keep (sorted by rank desc).
+# max_playlists: how many playlists to pull tracks from (more = deeper catalog).
+# use_charts: also include Deezer global top charts.
+DIFFICULTY_CONFIG: dict[int, dict[str, Any]] = {
+    1: {"keep_top_pct": 0.25, "max_playlists": 1, "use_charts": True, "label": "Facile"},
+    2: {"keep_top_pct": 0.50, "max_playlists": 2, "use_charts": True, "label": "Normal"},
+    3: {"keep_top_pct": 0.75, "max_playlists": 3, "use_charts": False, "label": "Difficile"},
+    4: {"keep_top_pct": 1.00, "max_playlists": 3, "use_charts": False, "label": "Expert"},
 }
 
 
@@ -93,6 +110,7 @@ def _parse_track(data: dict[str, Any]) -> dict[str, Any]:
         "preview_url": data.get("preview", ""),
         "duration": data.get("duration", 0),
         "release_date": data.get("release_date", ""),
+        "rank": data.get("rank", 0),
     }
 
 
@@ -100,46 +118,119 @@ class DeezerClient:
     def __init__(self) -> None:
         self.base_url = settings.deezer_api_base
 
-    async def search(self, query: str, limit: int = 25) -> list[dict[str, Any]]:
+    async def _api_get(
+        self, path: str, params: dict[str, Any] | None = None, endpoint_label: str = "search"
+    ) -> dict[str, Any]:
         async with httpx.AsyncClient() as client:
             start = time.perf_counter()
-            resp = await client.get(
-                f"{self.base_url}/search",
-                params={"q": query, "limit": limit},
-            )
+            resp = await client.get(f"{self.base_url}{path}", params=params)
             duration = time.perf_counter() - start
-            DEEZER_API_CALL_DURATION_SECONDS.labels(endpoint="search").observe(duration)
+            DEEZER_API_CALL_DURATION_SECONDS.labels(endpoint=endpoint_label).observe(duration)
             DEEZER_API_CALLS_TOTAL.labels(
-                endpoint="search",
+                endpoint=endpoint_label,
                 status="success" if resp.status_code == 200 else "error",
             ).inc()
-            data: list[dict[str, Any]] = resp.json().get("data", [])
-            return [_parse_track(t) for t in data if t.get("preview")]
+            result: dict[str, Any] = resp.json()
+            return result
 
-    async def search_by_genre(self, genre: str, limit: int = 50) -> list[dict[str, Any]]:
-        search_term = GENRE_SEARCH_TERMS.get(genre, genre)
-        if not search_term:
-            search_term = "top hits"
-        return await self.search(search_term, limit=limit)
+    async def search(self, query: str, limit: int = 25) -> list[dict[str, Any]]:
+        data = await self._api_get(
+            "/search",
+            params={"q": query, "limit": limit},
+            endpoint_label="search",
+        )
+        return [_parse_track(t) for t in data.get("data", []) if t.get("preview")]
 
     async def get_track(self, track_id: int) -> dict[str, Any]:
-        async with httpx.AsyncClient() as client:
-            start = time.perf_counter()
-            resp = await client.get(f"{self.base_url}/track/{track_id}")
-            duration = time.perf_counter() - start
-            DEEZER_API_CALL_DURATION_SECONDS.labels(endpoint="get_track").observe(duration)
-            DEEZER_API_CALLS_TOTAL.labels(
-                endpoint="get_track",
-                status="success" if resp.status_code == 200 else "error",
-            ).inc()
-            return _parse_track(resp.json())
+        data = await self._api_get(f"/track/{track_id}", endpoint_label="get_track")
+        return _parse_track(data)
 
-    async def get_random_tracks(self, genres: list[str], count: int = 10) -> list[dict[str, Any]]:
+    async def get_chart_tracks(self, limit: int = 100) -> list[dict[str, Any]]:
+        data = await self._api_get(
+            "/chart/0/tracks",
+            params={"limit": limit},
+            endpoint_label="chart",
+        )
+        return [_parse_track(t) for t in data.get("data", []) if t.get("preview")]
+
+    async def search_playlists(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
+        data = await self._api_get(
+            "/search/playlist",
+            params={"q": query, "limit": limit},
+            endpoint_label="search_playlist",
+        )
+        result: list[dict[str, Any]] = data.get("data", [])
+        return result
+
+    async def get_playlist_tracks(self, playlist_id: int, limit: int = 100) -> list[dict[str, Any]]:
+        data = await self._api_get(
+            f"/playlist/{playlist_id}/tracks",
+            params={"limit": limit},
+            endpoint_label="playlist_tracks",
+        )
+        return [_parse_track(t) for t in data.get("data", []) if t.get("preview")]
+
+    async def get_tracks_for_genre(
+        self, genre: str, max_playlists: int = 2
+    ) -> list[dict[str, Any]]:
+        """Fetch tracks for a genre using playlist search (primary) then keyword fallback."""
+        config = GENRE_CONFIG.get(genre, {"playlist": genre, "search": genre})
+
+        # Primary: find curated playlists for this genre
+        playlists = await self.search_playlists(config["playlist"], limit=max_playlists + 2)
+
+        tracks: list[dict[str, Any]] = []
+        for pl in playlists[:max_playlists]:
+            pl_tracks = await self.get_playlist_tracks(pl["id"], limit=100)
+            tracks.extend(pl_tracks)
+
+        # Fallback: if playlists returned few tracks, supplement with keyword search
+        if len(tracks) < 10:
+            search_tracks = await self.search(config["search"], limit=50)
+            tracks.extend(search_tracks)
+
+        return tracks
+
+    async def get_random_tracks(
+        self, genre_config: dict[str, int], count: int = 10
+    ) -> list[dict[str, Any]]:
+        """Fetch tracks for multiple genres, each with its own difficulty level.
+
+        Difficulty is cumulative and genre-relative: higher levels include
+        everything from lower levels plus progressively more niche tracks.
+        The pool grows, it never shrinks.
+
+        Args:
+            genre_config: mapping of genre key → difficulty (1-4).
+                          Example: {"rock": 4, "pop": 1, "jazz": 2}
+            count: total number of tracks to return.
+        """
         all_tracks: list[dict[str, Any]] = []
-        for genre in genres:
-            tracks = await self.search_by_genre(genre, limit=50)
-            all_tracks.extend(tracks)
+        needs_charts = False
 
+        for genre, difficulty in genre_config.items():
+            diff = DIFFICULTY_CONFIG.get(difficulty, DIFFICULTY_CONFIG[2])
+            keep_top_pct: float = diff["keep_top_pct"]
+            max_playlists: int = diff["max_playlists"]
+
+            if diff["use_charts"]:
+                needs_charts = True
+
+            tracks = await self.get_tracks_for_genre(genre, max_playlists=max_playlists)
+
+            # Sort by rank descending (most popular first) and keep top X%.
+            # This is genre-relative: a "hit" in jazz differs from a "hit" in pop.
+            tracks.sort(key=lambda t: t.get("rank", 0), reverse=True)
+            keep_count = max(1, int(len(tracks) * keep_top_pct))
+            filtered = tracks[:keep_count]
+
+            all_tracks.extend(filtered)
+
+        if needs_charts:
+            chart_tracks = await self.get_chart_tracks(limit=100)
+            all_tracks.extend(chart_tracks)
+
+        # Deduplicate by track id
         seen_ids: set[int] = set()
         unique: list[dict[str, Any]] = []
         for t in all_tracks:
@@ -148,5 +239,5 @@ class DeezerClient:
                 seen_ids.add(track_id)
                 unique.append(t)
 
-        random.shuffle(unique)
+        random.shuffle(unique)  # nosec B311 — shuffling playlist, not security
         return unique[:count]
