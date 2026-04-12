@@ -492,13 +492,6 @@ GENRE_AMBIANCE_MAP: dict[str, _G] = {
         "bpm": 150,
     },
     # --- French genres ---
-    "chansonfraaise": {
-        "palette": ["#0033AA", "#FFFFFF", "#CC1111"],
-        "behavior": "wave_smooth",
-        "intensity": 0.5,
-        "vibe": "poetic",
-        "bpm": 90,
-    },
     "chansonfrancaise": {
         "palette": ["#0033AA", "#FFFFFF", "#CC1111"],
         "behavior": "wave_smooth",
