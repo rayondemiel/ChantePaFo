@@ -15,6 +15,9 @@ from typing import Any
 # ---------------------------------------------------------------------------
 
 
+from collections.abc import Iterator
+
+
 def _player_name(players: dict[str, Any], pid: str) -> str:
     """Safely get a player's display name, even if they disconnected."""
     p = players.get(pid)
@@ -23,8 +26,27 @@ def _player_name(players: dict[str, Any], pid: str) -> str:
     return pid
 
 
-def _is_known_player(players: dict[str, Any], pid: str) -> bool:
-    return pid in players
+def _iter_known_answers(
+    players: dict[str, Any], rounds: list[dict[str, Any]]
+) -> Iterator[tuple[str, dict[str, Any]]]:
+    """Yield (player_id, answer) pairs for known players across all rounds."""
+    for rnd in rounds:
+        for pid, ans in rnd["answers"].items():
+            if pid in players:
+                yield pid, ans
+
+
+def _is_correct(ans: dict[str, Any]) -> bool:
+    return bool(ans.get("title_match") or ans.get("artist_match"))
+
+
+def _is_wrong_with_text(ans: dict[str, Any]) -> bool:
+    """True if the answer is wrong but has real text (not a sentinel)."""
+    if not ans.get("text"):
+        return False
+    if _is_correct(ans):
+        return False
+    return ans.get("distance", 0) < 999
 
 
 def _correct_answers(
@@ -34,7 +56,7 @@ def _correct_answers(
     result = []
     for i, rnd in enumerate(rounds):
         ans = rnd["answers"].get(player_id)
-        if ans and (ans.get("title_match") or ans.get("artist_match")):
+        if ans and _is_correct(ans):
             result.append((i, ans))
     return result
 
@@ -104,25 +126,20 @@ def _award_shazam(
     best_pid: str | None = None
     best_time: int = 999_999
 
-    for rnd in rounds:
-        for pid, ans in rnd["answers"].items():
-            if not _is_known_player(players, pid):
-                continue
-            if (ans.get("title_match") or ans.get("artist_match")) and ans.get("time_ms", 0) > 0:
-                if ans["time_ms"] < best_time:
-                    best_time = ans["time_ms"]
-                    best_pid = pid
+    for pid, ans in _iter_known_answers(players, rounds):
+        t = ans.get("time_ms", 0)
+        if _is_correct(ans) and 0 < t < best_time:
+            best_pid, best_time = pid, t
 
     if best_pid is None:
         return None
 
-    secs = best_time / 1000
     return {
         "id": "shazam",
         "player_id": best_pid,
         "title": "Le Shazam humain",
         "emoji": "⚡",
-        "detail": f"{_player_name(players, best_pid)} — {secs:.1f}s",
+        "detail": f"{_player_name(players, best_pid)} — {best_time / 1000:.1f}s",
     }
 
 
@@ -163,22 +180,12 @@ def _award_poete(
     best_distance = -1
     best_text = ""
 
-    for rnd in rounds:
-        for pid, ans in rnd["answers"].items():
-            if not _is_known_player(players, pid):
-                continue
-            text = ans.get("text", "")
-            if not text:
-                continue
-            if ans.get("title_match") or ans.get("artist_match"):
-                continue
-            dist = ans.get("distance", 0)
-            if dist >= 999:
-                continue
-            if dist > best_distance:
-                best_distance = dist
-                best_pid = pid
-                best_text = text
+    for pid, ans in _iter_known_answers(players, rounds):
+        if not _is_wrong_with_text(ans):
+            continue
+        dist = ans.get("distance", 0)
+        if dist > best_distance:
+            best_pid, best_distance, best_text = pid, dist, ans.get("text", "")
 
     if best_pid is None:
         return None
@@ -198,31 +205,20 @@ def _award_touriste(
     total_scores: dict[str, int],
 ) -> AwardDef | None:
     """Highest average distance on wrong answers (non-empty text only)."""
-    scores: dict[str, list[int]] = {pid: [] for pid in players}
+    dists_by_player: dict[str, list[int]] = {pid: [] for pid in players}
 
-    for rnd in rounds:
-        for pid, ans in rnd["answers"].items():
-            if not _is_known_player(players, pid):
-                continue
-            text = ans.get("text", "")
-            if not text:
-                continue
-            if ans.get("title_match") or ans.get("artist_match"):
-                continue
-            dist = ans.get("distance", 0)
-            if dist < 999:
-                scores.setdefault(pid, []).append(dist)
+    for pid, ans in _iter_known_answers(players, rounds):
+        if _is_wrong_with_text(ans):
+            dists_by_player[pid].append(ans.get("distance", 0))
 
     best_pid: str | None = None
     best_avg = -1.0
-
-    for pid, dists in scores.items():
+    for pid, dists in dists_by_player.items():
         if not dists:
             continue
         avg = sum(dists) / len(dists)
         if avg > best_avg:
-            best_avg = avg
-            best_pid = pid
+            best_avg, best_pid = avg, pid
 
     if best_pid is None:
         return None
@@ -245,14 +241,10 @@ def _award_rageux(
     best_pid: str | None = None
     best_attempts = 2  # require at least 3
 
-    for rnd in rounds:
-        for pid, ans in rnd["answers"].items():
-            if not _is_known_player(players, pid):
-                continue
-            att = ans.get("attempts", 0)
-            if att > best_attempts:
-                best_attempts = att
-                best_pid = pid
+    for pid, ans in _iter_known_answers(players, rounds):
+        att = ans.get("attempts", 0)
+        if att > best_attempts:
+            best_attempts, best_pid = att, pid
 
     if best_pid is None:
         return None
