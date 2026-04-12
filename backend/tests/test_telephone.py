@@ -135,3 +135,64 @@ async def test_telephone_end() -> None:
     final = await mode.end()
     assert "chains" in final
     assert "total_scores" in final
+
+
+@pytest.mark.asyncio
+async def test_telephone_empty_tracks() -> None:
+    """Bug 5: empty track provider must set phase=finished without crashing."""
+
+    class EmptyTrackProvider:
+        async def get_random_tracks(
+            self, genre_config: dict[str, int], count: int = 10
+        ) -> list[dict[str, Any]]:
+            return []
+
+    mode = TelephoneArabeMode()
+    await mode.start(
+        players=_players(3),
+        settings={"genres": {"all": 1}},
+        track_provider=EmptyTrackProvider(),
+    )
+    state = mode.get_state()
+    assert state["phase"] == "finished"
+    assert state.get("error") == "no_tracks_available"
+
+
+@pytest.mark.asyncio
+async def test_telephone_unknown_player_submit() -> None:
+    """Bug 6: submitting a step for an unknown player must not raise KeyError."""
+    mode = TelephoneArabeMode()
+    await mode.start(
+        players=_players(3),
+        settings={"genres": {"all": 1}},
+        track_provider=FakeTrackProvider(),
+    )
+    # "ghost" is not in history["players"] — should use player_id as fallback name
+    result = await mode.handle_event("submit_step", "ghost", {"audio_url": "/ghost.webm"})
+    assert result is not None
+    assert result["status"] == "submitted"
+
+
+@pytest.mark.asyncio
+async def test_telephone_awards_populated() -> None:
+    """Bug 8: after a full game, history['rounds'] must be non-empty."""
+    mode = TelephoneArabeMode()
+    players = _players(3)
+    await mode.start(
+        players=players,
+        settings={"genres": {"all": 1}},
+        track_provider=FakeTrackProvider(),
+    )
+
+    # Drive the full game to reveal phase
+    for step in range(3):
+        for p in players:
+            if mode.state["phase"] == "singing":
+                await mode.handle_event(
+                    "submit_step", p["id"], {"audio_url": f"/u/{p['id']}_s{step}.webm"}
+                )
+            else:
+                await mode.handle_event("submit_step", p["id"], {"text": f"Song{step}"})
+
+    assert mode.state["phase"] == "reveal"
+    assert len(mode.history["rounds"]) > 0

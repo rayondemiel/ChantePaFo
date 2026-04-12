@@ -23,11 +23,11 @@ class TelephoneArabeMode(GameMode):
 
     async def start(
         self,
-        players: list[str],
+        players: list[dict[str, Any]],
         settings: dict[str, Any],
         track_provider: Any,
     ) -> None:
-        self.players = players  # type: ignore[assignment]
+        self.players = players
         n = len(self.players)
         genres: dict[str, int] = settings.get("genres", {"all": 1})
 
@@ -37,6 +37,17 @@ class TelephoneArabeMode(GameMode):
             self.history["players"][p["id"]] = {"name": p["name"]}
             self.history["total_scores"][p["id"]] = 0
 
+        # Guard against empty tracks list — game cannot function without tracks
+        if not tracks:
+            self.state = {
+                "phase": "finished",
+                "current_step": 0,
+                "total_steps": 0,
+                "chains": [],
+                "error": "no_tracks_available",
+            }
+            return
+
         # Each player starts a chain with a different track
         self.chains = []
         for i, p in enumerate(self.players):
@@ -44,7 +55,7 @@ class TelephoneArabeMode(GameMode):
                 {
                     "chain_id": i,
                     "starter_id": p["id"],
-                    "original_track": tracks[i] if i < len(tracks) else tracks[0],
+                    "original_track": tracks[i % len(tracks)],
                     "steps": [],
                 }
             )
@@ -105,7 +116,7 @@ class TelephoneArabeMode(GameMode):
 
             step_data: dict[str, Any] = {
                 "player_id": player_id,
-                "player_name": self.history["players"][player_id]["name"],
+                "player_name": self.history["players"].get(player_id, {}).get("name", player_id),
                 "step_idx": step_idx,
                 "type": "sing" if is_singing else "write",
             }
@@ -151,6 +162,7 @@ class TelephoneArabeMode(GameMode):
         for chain in self.chains:
             original_title: str = chain["original_track"]["title"]
             original_artist: str = chain["original_track"]["artist"]
+            round_data: dict[str, Any] = {"answers": {}, "scores": {}}
 
             for i, step in enumerate(chain["steps"]):
                 pid: str = step["player_id"]
@@ -160,6 +172,15 @@ class TelephoneArabeMode(GameMode):
                     self.history["total_scores"][pid] = (
                         self.history["total_scores"].get(pid, 0) + pts
                     )
+                    round_data["answers"][pid] = {
+                        "text": step.get("text", ""),
+                        "title_match": result["title_match"],
+                        "artist_match": result.get("artist_match", False),
+                        "time_ms": 0,
+                        "attempts": 1,
+                        "distance": result.get("distance", 0),
+                    }
+                    round_data["scores"][pid] = round_data["scores"].get(pid, 0) + pts
 
                 if step["type"] == "sing" and i + 1 < len(chain["steps"]):
                     next_step_data = chain["steps"][i + 1]
@@ -171,6 +192,9 @@ class TelephoneArabeMode(GameMode):
                             self.history["total_scores"][pid] = (
                                 self.history["total_scores"].get(pid, 0) + 300
                             )
+                            round_data["scores"][pid] = round_data["scores"].get(pid, 0) + 300
+
+            self.history["rounds"].append(round_data)
 
     def get_state(self) -> dict[str, Any]:
         return {

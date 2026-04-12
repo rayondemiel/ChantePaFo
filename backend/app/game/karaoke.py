@@ -32,11 +32,11 @@ class KaraokeMystereMode(GameMode):
 
     async def start(
         self,
-        players: list[str],
+        players: list[dict[str, Any]],
         settings: dict[str, Any],
         track_provider: Any,
     ) -> None:
-        self.players = players  # type: ignore[assignment]
+        self.players = players
         variant: str = settings.get("karaoke_variant", "classic")
         num_rounds: int = settings.get("num_rounds", 3)
         genres: dict[str, int] = settings.get("genres", {"all": 1})
@@ -102,14 +102,19 @@ class KaraokeMystereMode(GameMode):
             return {"status": "recorded", "all_done": all_recorded}
 
         if event_type == "guess" and self.state["phase"] == "guessing":
+            rec_idx: int = self.state["current_recording_idx"]
+            recordings = self.recordings.get(round_idx, [])
+            if rec_idx < len(recordings):
+                singer_id = recordings[rec_idx]["player_id"]
+                if player_id == singer_id:
+                    return {"error": "cannot_guess_own_recording"}
+
             track = self.tracks[round_idx]
             result: dict[str, Any] = fuzzy_match(data["text"], track["title"], track["artist"])
             result["time_ms"] = data.get("time_ms", 0)
             result["text"] = data["text"]
             result["player_id"] = player_id
 
-            rec_idx: int = self.state["current_recording_idx"]
-            recordings = self.recordings.get(round_idx, [])
             if rec_idx < len(recordings):
                 singer_id = recordings[rec_idx]["player_id"]
                 self.guesses.setdefault(round_idx, {})
@@ -167,15 +172,17 @@ class KaraokeMystereMode(GameMode):
                 self.history["total_scores"][guesser_id] = (
                     self.history["total_scores"].get(guesser_id, 0) + pts
                 )
-                round_data["answers"][guesser_id] = {
-                    "text": g["text"],
-                    "title_match": g["title_match"],
-                    "artist_match": g.get("artist_match", False),
-                    "time_ms": g["time_ms"],
-                    "attempts": 1,
-                    "distance": g.get("distance", 0),
-                }
-                round_data["scores"][guesser_id] = pts
+                # Keep first answer text; accumulate scores across multiple singers
+                if guesser_id not in round_data["answers"]:
+                    round_data["answers"][guesser_id] = {
+                        "text": g["text"],
+                        "title_match": g["title_match"],
+                        "artist_match": g.get("artist_match", False),
+                        "time_ms": g["time_ms"],
+                        "attempts": 1,
+                        "distance": g.get("distance", 0),
+                    }
+                round_data["scores"][guesser_id] = round_data["scores"].get(guesser_id, 0) + pts
 
         self.history["rounds"].append(round_data)
 

@@ -22,11 +22,11 @@ class BlindtestMode(GameMode):
 
     async def start(
         self,
-        players: list[str],
+        players: list[dict[str, Any]],
         settings: dict[str, Any],
         track_provider: Any,
     ) -> None:
-        self.players = players  # type: ignore[assignment]
+        self.players = players
         num_rounds: int = settings.get("num_rounds", 10)
         genres: dict[str, int] = settings.get("genres", {"all": 1})
 
@@ -84,10 +84,16 @@ class BlindtestMode(GameMode):
             attempts = (prev["attempts"] + 1) if prev else 1
             result["attempts"] = attempts
 
-            is_improvement = not prev or (not prev.get("title_match") and result["title_match"])
-            if is_improvement or not prev:
-                self.round_answers[player_id] = result
+            if prev:
+                # Merge: keep the best of each match component
+                result["title_match"] = result["title_match"] or prev.get("title_match", False)
+                result["artist_match"] = result["artist_match"] or prev.get("artist_match", False)
+                result["bonus"] = result["title_match"] and result["artist_match"]
+                # Keep the earliest correct time
+                if prev.get("title_match") and not result.get("title_match"):
+                    result["time_ms"] = prev["time_ms"]
 
+            self.round_answers[player_id] = result
             return result
 
         if event_type in ("round_timeout", "next_round"):
@@ -108,11 +114,12 @@ class BlindtestMode(GameMode):
             self.state["round_scores"] = scores
 
             track = self.tracks[self.state["current_round"]]
-            self.state["round_results"] = {
+            round_results = {
                 "correct_title": track["title"],
                 "correct_artist": track["artist"],
                 "cover_url": track.get("cover_url", ""),
             }
+            self.state["round_results"] = round_results
 
             self.history["rounds"].append(
                 {
@@ -123,23 +130,28 @@ class BlindtestMode(GameMode):
             for pid, pts in scores.items():
                 self.history["total_scores"][pid] = self.history["total_scores"].get(pid, 0) + pts
 
-            self.state["phase"] = "round_result"
-
             next_round = self.state["current_round"] + 1
             if next_round >= len(self.tracks):
                 self.state["phase"] = "finished"
                 return {
                     "phase": "finished",
                     "scores": scores,
-                    "results": self.state["round_results"],
+                    "results": round_results,
                 }
 
-            self._load_round(next_round)
+            # Stay in round_result — frontend calls "advance_round" to proceed
+            self.state["phase"] = "round_result"
             return {
-                "phase": self.state["phase"],
+                "phase": "round_result",
                 "scores": scores,
-                "results": self.state["round_results"],
+                "results": round_results,
             }
+
+        if event_type == "advance_round":
+            next_round = self.state["current_round"] + 1
+            if next_round < len(self.tracks):
+                self._load_round(next_round)
+            return {"phase": self.state["phase"]}
 
         return None
 

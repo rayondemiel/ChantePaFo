@@ -257,12 +257,14 @@ async def _handle_game_event(sid: str, data: object) -> None:
     await sio.emit("game_state", state, room=payload.code)
 
     if state.get("phase") == "finished":
-        final = await game_session.end()
+        session = _active_sessions.pop(payload.code, None)
+        if session is None:
+            return  # another coroutine already handled the finish
+        final = await session.end()
         await sio.emit("game_ended", final, room=payload.code)
         redis = get_redis()
         svc = RoomService(redis)
         await svc.set_status(payload.code, "lobby")
-        del _active_sessions[payload.code]
         await sio.emit("ambiance_update", get_ambiance_for_moment("lobby"), room=payload.code)
         logger.info("game finished room=%s", payload.code)
 

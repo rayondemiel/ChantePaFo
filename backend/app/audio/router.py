@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import os
 import uuid
@@ -85,8 +86,12 @@ async def upload_audio(
     if not filepath.startswith(upload_dir + os.sep):
         raise HTTPException(400, "Invalid upload path")
 
-    with open(filepath, "wb") as f:
-        f.write(content)
+    await asyncio.to_thread(_sync_write, filepath, content)
 
     # Return the URL + server-computed hash so the client can verify round-trip
     return {"url": f"/uploads/{filename}", "sha256": actual_hash}
+
+
+def _sync_write(filepath: str, content: bytes) -> None:
+    with open(filepath, "wb") as f:
+        f.write(content)

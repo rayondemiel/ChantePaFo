@@ -83,8 +83,61 @@ async def test_blindtest_advance_round() -> None:
     await mode.handle_event("answer", "p0", {"text": "thriller", "time_ms": 3000})
     result = await mode.handle_event("next_round", "p0", {})
     assert result is not None
-    # After advancing, phase should change (either countdown for next round or finished)
-    assert result["phase"] in ("countdown", "finished", "round_result")
+    # next_round now always returns round_result (not finished, since there's still round 1)
+    assert result["phase"] == "round_result"
+    assert "scores" in result
+    assert "results" in result
+
+
+@pytest.mark.asyncio
+async def test_blindtest_round_result_visible() -> None:
+    """Bug 1: next_round must return round_result; advance_round loads the next round."""
+    mode = BlindtestMode()
+    await mode.start(
+        players=_players(2),
+        settings={"num_rounds": 2, "genres": {"pop": 1}},
+        track_provider=FakeTrackProvider(),
+    )
+    mode.state["phase"] = "playing"
+
+    # Trigger end of round 0
+    result = await mode.handle_event("next_round", "p0", {})
+    assert result is not None
+    assert result["phase"] == "round_result"
+    # State must also be round_result (not overwritten by _load_round)
+    assert mode.state["phase"] == "round_result"
+    assert mode.state["current_round"] == 0  # still on round 0 until advance_round
+
+    # Frontend calls advance_round; now round 1 loads
+    adv = await mode.handle_event("advance_round", "p0", {})
+    assert adv is not None
+    assert adv["phase"] == "countdown"
+    assert mode.state["current_round"] == 1
+
+
+@pytest.mark.asyncio
+async def test_blindtest_artist_then_title_gives_bonus() -> None:
+    """Bug 3: finding artist first then title must yield bonus=True."""
+    mode = BlindtestMode()
+    await mode.start(
+        players=_players(2),
+        settings={"num_rounds": 1, "genres": {"pop": 1}},
+        track_provider=FakeTrackProvider(),
+    )
+    mode.state["phase"] = "playing"
+
+    # Round 0: title="Thriller" / artist="Michael Jackson"
+    # First answer: correct artist only
+    r1 = await mode.handle_event("answer", "p0", {"text": "michael jackson", "time_ms": 3000})
+    assert r1 is not None
+    assert r1["artist_match"] is True
+
+    # Second answer: correct title — bonus should now be True (merged)
+    r2 = await mode.handle_event("answer", "p0", {"text": "thriller", "time_ms": 5000})
+    assert r2 is not None
+    assert r2["title_match"] is True
+    assert r2["artist_match"] is True  # preserved from first answer
+    assert r2["bonus"] is True
 
 
 @pytest.mark.asyncio
