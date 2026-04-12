@@ -68,6 +68,37 @@ def _blank_rounds(rounds: list[dict[str, Any]], player_id: str) -> int:
     return count
 
 
+def _fastest_correct_time_in_round(rnd: dict[str, Any]) -> int:
+    """Return the fastest correct answer time_ms in a round, or 0 if none."""
+    times = [
+        t
+        for ans in rnd["answers"].values()
+        if _is_correct(ans) and (t := ans.get("time_ms", 0)) > 0
+    ]
+    return min(times) if times else 0
+
+
+def _find_best(
+    items: Iterator[tuple[str, dict[str, Any]]],
+    key: str,
+    minimize: bool = False,
+    threshold: int = 0,
+) -> tuple[str | None, int]:
+    """Find the player with the best (max or min) value for a given answer key."""
+    best_pid: str | None = None
+    best_val = 999_999 if minimize else threshold
+
+    for pid, ans in items:
+        val = ans.get(key, 0)
+        if not isinstance(val, int):
+            continue
+        improved = val < best_val if minimize else val > best_val
+        if improved:
+            best_val, best_pid = val, pid
+
+    return best_pid, best_val
+
+
 # ---------------------------------------------------------------------------
 # Award definitions
 # ---------------------------------------------------------------------------
@@ -202,20 +233,7 @@ def _award_touriste(
     total_scores: dict[str, int],
 ) -> AwardDef | None:
     """Highest average distance on wrong answers (non-empty text only)."""
-    dists_by_player: dict[str, list[int]] = {pid: [] for pid in players}
-
-    for pid, ans in _iter_known_answers(players, rounds):
-        if _is_wrong_with_text(ans):
-            dists_by_player[pid].append(ans.get("distance", 0))
-
-    best_pid: str | None = None
-    best_avg = -1.0
-    for pid, dists in dists_by_player.items():
-        if not dists:
-            continue
-        avg = sum(dists) / len(dists)
-        if avg > best_avg:
-            best_avg, best_pid = avg, pid
+    best_pid, best_avg = _player_with_highest_avg_distance(players, rounds)
 
     if best_pid is None:
         return None
@@ -227,6 +245,25 @@ def _award_touriste(
         "emoji": "🗺️",
         "detail": f"{_player_name(players, best_pid)} — distance moy. {best_avg:.1f}",
     }
+
+
+def _player_with_highest_avg_distance(
+    players: dict[str, Any], rounds: list[dict[str, Any]]
+) -> tuple[str | None, float]:
+    dists_by_player: dict[str, list[int]] = {pid: [] for pid in players}
+    for pid, ans in _iter_known_answers(players, rounds):
+        if _is_wrong_with_text(ans):
+            dists_by_player[pid].append(int(ans.get("distance", 0)))
+
+    best_pid: str | None = None
+    best_avg = -1.0
+    for pid, dists in dists_by_player.items():
+        if not dists:
+            continue
+        avg = sum(dists) / len(dists)
+        if avg > best_avg:
+            best_avg, best_pid = avg, pid
+    return best_pid, best_avg
 
 
 def _award_rageux(
@@ -262,27 +299,27 @@ def _award_one_hit_wonder(
 ) -> AwardDef | None:
     """Exactly 1 correct answer and it was the fastest answer in that round."""
     for pid in players:
-        correct = _correct_answers(rounds, pid)
-        if len(correct) != 1:
+        if not _is_sole_correct_and_fastest(rounds, pid):
             continue
-        round_idx, ans = correct[0]
-        rnd = rounds[round_idx]
-        round_times = [
-            a.get("time_ms", 0)
-            for a in rnd["answers"].values()
-            if (a.get("title_match") or a.get("artist_match")) and a.get("time_ms", 0) > 0
-        ]
-        if not round_times:
-            continue
-        if ans.get("time_ms", 0) == min(round_times):
-            return {
-                "id": "one_hit_wonder",
-                "player_id": pid,
-                "title": "Le One Hit Wonder",
-                "emoji": "🎯",
-                "detail": f"{_player_name(players, pid)} — 1 bonne réponse, la plus rapide du round",
-            }
+        return {
+            "id": "one_hit_wonder",
+            "player_id": pid,
+            "title": "Le One Hit Wonder",
+            "emoji": "🎯",
+            "detail": f"{_player_name(players, pid)} — 1 bonne réponse, la plus rapide du round",
+        }
     return None
+
+
+def _is_sole_correct_and_fastest(rounds: list[dict[str, Any]], pid: str) -> bool:
+    """True if the player got exactly 1 correct answer AND it was the fastest in that round."""
+    correct = _correct_answers(rounds, pid)
+    if len(correct) != 1:
+        return False
+    round_idx, ans = correct[0]
+    fastest = _fastest_correct_time_in_round(rounds[round_idx])
+    player_time = ans.get("time_ms", 0)
+    return fastest > 0 and player_time == fastest
 
 
 # ---------------------------------------------------------------------------
