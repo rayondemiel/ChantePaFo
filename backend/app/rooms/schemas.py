@@ -1,6 +1,11 @@
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 _NAME_PATTERN = r"^[^\x00-\x1f\x7f]+$"
+
+GameModeType = Literal["blindtest", "karaoke", "telephone"]
+KaraokeVariantType = Literal["classic", "progressive", "mystery"]
 
 
 class PlayerInfo(BaseModel):
@@ -10,21 +15,21 @@ class PlayerInfo(BaseModel):
 
 
 class RoomSettings(BaseModel):
-    game_mode: str = "blindtest"
+    game_mode: GameModeType = "blindtest"
     genres: dict[str, int] = {"all": 2}
     num_rounds: int = 10
     extract_duration: int = 20
-    karaoke_variant: str = "classic"
+    karaoke_variant: KaraokeVariantType = "classic"
 
 
 class PartialRoomSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    game_mode: str | None = None
+    game_mode: GameModeType | None = None
     genres: dict[str, int] | None = None
     num_rounds: int | None = Field(default=None, ge=1, le=50)
     extract_duration: int | None = Field(default=None, ge=5, le=60)
-    karaoke_variant: str | None = None
+    karaoke_variant: KaraokeVariantType | None = None
 
 
 class RoomCreate(BaseModel):
