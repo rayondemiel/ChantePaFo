@@ -9,6 +9,18 @@ from app.rooms.codegen import generate_room_code
 ROOM_TTL = 1800  # 30 minutes
 MAX_PLAYERS = 10
 
+# Server-side fields that must never be exposed to clients.
+_PRIVATE_ROOM_FIELDS = frozenset({"host_id"})
+
+
+def public_room(room: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of the room dict with server-only fields stripped.
+
+    Used at every client-facing boundary (REST responses, Socket.IO broadcasts)
+    so that capability fields like `host_id` never leak.
+    """
+    return {k: v for k, v in room.items() if k not in _PRIVATE_ROOM_FIELDS}
+
 
 class RoomService:
     def __init__(self, redis: Redis):

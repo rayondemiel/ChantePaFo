@@ -1,5 +1,3 @@
-from typing import Any
-
 import socketio
 from jose import JWTError
 from pydantic import ValidationError
@@ -13,7 +11,7 @@ from app.main import sio
 from app.metrics import SOCKETIO_CONNECTIONS_ACTIVE, SOCKETIO_EVENTS_TOTAL
 from app.models import User
 from app.rooms.schemas import PartialRoomSettings
-from app.rooms.service import RoomService
+from app.rooms.service import RoomService, public_room
 from app.sockets.payloads import (
     JoinRoomPayload,
     ReactionPayload,
@@ -23,11 +21,6 @@ from app.sockets.payloads import (
 )
 
 logger = get_logger(__name__)
-
-
-def _public_room(room: dict[str, Any]) -> dict[str, Any]:
-    """Return a copy of the room dict with private server-side fields removed."""
-    return {k: v for k, v in room.items() if k != "host_id"}
 
 
 def register_handlers() -> None:
@@ -82,7 +75,7 @@ def register_handlers() -> None:
                         room_code,
                         user_id,
                     )
-                    await sio.emit("room_updated", _public_room(room), room=room_code)
+                    await sio.emit("room_updated", public_room(room), room=room_code)
             await redis.delete(f"player_room:{sid}")
 
     @sio.event
@@ -111,7 +104,7 @@ def register_handlers() -> None:
         await sio.enter_room(sid, payload.code)
         await redis.set(f"player_room:{sid}", payload.code, ex=1800)
         logger.info("player joined room sid=%s room=%s user_id=%s", sid, payload.code, user_id)
-        await sio.emit("room_updated", _public_room(room), room=payload.code)
+        await sio.emit("room_updated", public_room(room), room=payload.code)
 
     @sio.event
     async def update_settings(sid, data):
@@ -153,7 +146,7 @@ def register_handlers() -> None:
         )
         if room:
             logger.info("settings updated room=%s user=%s", payload.code, user_id)
-            await sio.emit("room_updated", _public_room(room), room=payload.code)
+            await sio.emit("room_updated", public_room(room), room=payload.code)
 
     @sio.event
     async def start_game(sid, data):
@@ -186,7 +179,7 @@ def register_handlers() -> None:
         room = await svc.set_status(payload.code, "playing")
         if room:
             logger.info("game started room=%s", payload.code)
-            await sio.emit("game_started", _public_room(room), room=payload.code)
+            await sio.emit("game_started", public_room(room), room=payload.code)
 
     @sio.event
     async def reaction(sid, data):
