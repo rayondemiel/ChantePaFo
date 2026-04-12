@@ -30,6 +30,10 @@
           <span class="sep">·</span>
           <span class="count">{{ roomStore.room.players.length }}/10 joueurs</span>
         </p>
+        <p class="marquee-hosted">
+          <span class="hosted-label">// Hosted by</span>
+          <strong class="hosted-name">{{ hostName }}</strong>
+        </p>
       </div>
 
       <nav class="header-chips" aria-label="Actions room">
@@ -88,6 +92,24 @@
               <span class="mode-emoji">{{ mode.emoji }}</span>
               <span class="mode-name">{{ mode.label }}</span>
               <span class="mode-tag">{{ mode.tag }}</span>
+              <span class="mode-motif" aria-hidden="true">
+                <template v-if="mode.id === 'blindtest'">
+                  <span class="eq-bar"></span>
+                  <span class="eq-bar"></span>
+                  <span class="eq-bar"></span>
+                  <span class="eq-bar"></span>
+                </template>
+                <template v-else-if="mode.id === 'karaoke'">
+                  <span class="mic-dot"></span>
+                  <span class="mic-dot"></span>
+                  <span class="mic-dot"></span>
+                </template>
+                <template v-else>
+                  <span class="chain-dot"></span>
+                  <span class="chain-dot"></span>
+                  <span class="chain-dot"></span>
+                </template>
+              </span>
             </button>
           </div>
         </div>
@@ -158,6 +180,27 @@
               <dt>Manches</dt>
               <dd>{{ displayRounds }}</dd>
             </div>
+            <div v-if="displayGenres.length > 0" class="readout-row readout-row-genres">
+              <dt>Genres</dt>
+              <dd class="genres-dd">
+                <span
+                  v-for="g in displayGenres"
+                  :key="g.key"
+                  class="genre-pill"
+                  :class="`chip-${getGenreColor(g.key)}`"
+                >
+                  <span class="pill-label">{{ getGenreLabel(g.key) }}</span>
+                  <span class="pill-dots" aria-hidden="true">
+                    <span
+                      v-for="l in 4"
+                      :key="l"
+                      class="pill-dot"
+                      :class="{ 'pill-dot-on': g.level >= l }"
+                    ></span>
+                  </span>
+                </span>
+              </dd>
+            </div>
           </dl>
 
           <p class="waiting-typing">L'hôte règle l'ambiance<span class="dot-pulse">...</span></p>
@@ -170,7 +213,16 @@
       <button class="btn-launch" :disabled="!canStart" @click="startGame">
         <span class="launch-arrow">▶</span>
         <span class="launch-label">Lancer la soirée</span>
-        <span class="launch-meta">{{ roomStore.room.players.length }}/10</span>
+        <span class="launch-meta">
+          <span class="meta-item">
+            <span class="meta-emoji">{{ currentMode.emoji }}</span>
+            {{ currentMode.label }}
+          </span>
+          <span class="meta-sep" aria-hidden="true">·</span>
+          <span class="meta-item">{{ numRounds }} manches</span>
+          <span class="meta-sep" aria-hidden="true">·</span>
+          <span class="meta-item">{{ roomStore.room.players.length }}/10</span>
+        </span>
       </button>
       <p v-if="!canStart" class="launch-hint">Il faut au moins 2 joueurs pour commencer</p>
     </footer>
@@ -221,6 +273,7 @@ import { useBreakpoint } from '../composables/useBreakpoint'
 import PlayerList from '../components/PlayerList.vue'
 import GenreSelector from '../components/GenreSelector.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
+import { getGenreLabel, getGenreColor } from '../lib/genres'
 import type { RoomState, GameState, Player } from '../types'
 
 type GameModeId = 'blindtest' | 'karaoke' | 'telephone'
@@ -258,12 +311,20 @@ const { isMobile } = useBreakpoint()
 const canStart = computed(() => (roomStore.room?.players.length ?? 0) >= 2)
 const emptySlots = computed(() => Math.max(0, 10 - (roomStore.room?.players.length ?? 0)))
 const statusLabel = computed(() => (canStart.value ? 'Prêt à lancer' : 'En attente de joueurs'))
+/** Host's local current mode (used by the launch CTA). */
+const currentMode = computed(() => MODES.find((m) => m.id === gameMode.value) ?? MODES[0])
+
 /** Spectator readout: use server-synced room settings (host uses local refs). */
 const displayMode = computed(() => {
   const modeId = roomStore.room?.settings?.game_mode ?? 'blindtest'
   return MODES.find((m) => m.id === modeId) ?? MODES[0]
 })
 const displayRounds = computed(() => roomStore.room?.settings?.num_rounds ?? 10)
+const displayGenres = computed(() => {
+  const raw = roomStore.room?.settings?.genres
+  if (!raw || typeof raw !== 'object') return [] as Array<{ key: string; level: number }>
+  return Object.entries(raw).map(([key, level]) => ({ key, level: Number(level) || 2 }))
+})
 const hostName = computed(() => roomStore.room?.players.find((p) => p.is_host)?.name ?? 'Host')
 
 const confirmLeaveOpen = ref(false)
@@ -634,6 +695,29 @@ onUnmounted(() => {
 .marquee-status .count {
   color: var(--color-accent);
 }
+.marquee-hosted {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  margin-top: 0.2rem;
+  font-size: var(--text-sm);
+}
+.hosted-label {
+  font-family: var(--font-display);
+  font-size: var(--text-xs);
+  letter-spacing: 3px;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+.hosted-name {
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  color: var(--color-warning);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  text-shadow: 0 0 14px rgba(255, 228, 77, 0.4);
+}
 .pulse-dot {
   width: 8px;
   height: 8px;
@@ -933,6 +1017,141 @@ onUnmounted(() => {
   color: var(--mode-accent);
 }
 
+/* ===== Mode motifs (per-mode animated decoration, top-right corner) ===== */
+.mode-motif {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.6rem;
+  display: flex;
+  align-items: flex-end;
+  gap: 2.5px;
+  height: 14px;
+  opacity: 0.45;
+  transition: opacity 0.25s;
+  pointer-events: none;
+}
+.mode-card.active .mode-motif {
+  opacity: 1;
+}
+
+/* Blindtest — equalizer bars */
+.eq-bar {
+  width: 2.5px;
+  background: var(--mode-accent);
+  border-radius: 1px;
+  box-shadow: 0 0 6px var(--mode-accent);
+  transform-origin: bottom;
+}
+.eq-bar:nth-child(1) {
+  height: 40%;
+}
+.eq-bar:nth-child(2) {
+  height: 80%;
+}
+.eq-bar:nth-child(3) {
+  height: 55%;
+}
+.eq-bar:nth-child(4) {
+  height: 95%;
+}
+.mode-card.active .eq-bar {
+  animation: eq-pulse 0.9s ease-in-out infinite;
+}
+.mode-card.active .eq-bar:nth-child(1) {
+  animation-delay: 0s;
+}
+.mode-card.active .eq-bar:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.mode-card.active .eq-bar:nth-child(3) {
+  animation-delay: 0.3s;
+}
+.mode-card.active .eq-bar:nth-child(4) {
+  animation-delay: 0.45s;
+}
+@keyframes eq-pulse {
+  0%,
+  100% {
+    transform: scaleY(0.5);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+/* Karaoke — vertical mic dots bouncing like voice pulses */
+.mic-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--mode-accent);
+  box-shadow: 0 0 6px var(--mode-accent);
+  align-self: center;
+}
+.mode-card.active .mic-dot {
+  animation: mic-bounce 1.1s ease-in-out infinite;
+}
+.mode-card.active .mic-dot:nth-child(1) {
+  animation-delay: 0s;
+}
+.mode-card.active .mic-dot:nth-child(2) {
+  animation-delay: 0.18s;
+}
+.mode-card.active .mic-dot:nth-child(3) {
+  animation-delay: 0.36s;
+}
+@keyframes mic-bounce {
+  0%,
+  100% {
+    transform: translateY(3px);
+    opacity: 0.55;
+  }
+  50% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+
+/* Téléphone — chain relay, dots filling in sequence */
+.chain-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: transparent;
+  border: 1.5px solid var(--mode-accent);
+  box-shadow: 0 0 4px var(--mode-accent);
+  align-self: center;
+  transition:
+    background 0.2s,
+    box-shadow 0.2s;
+}
+.mode-card.active .chain-dot {
+  animation: chain-relay 1.6s ease-in-out infinite;
+}
+.mode-card.active .chain-dot:nth-child(1) {
+  animation-delay: 0s;
+}
+.mode-card.active .chain-dot:nth-child(2) {
+  animation-delay: 0.3s;
+}
+.mode-card.active .chain-dot:nth-child(3) {
+  animation-delay: 0.6s;
+}
+@keyframes chain-relay {
+  0%,
+  60%,
+  100% {
+    background: transparent;
+    box-shadow: 0 0 4px var(--mode-accent);
+  }
+  30% {
+    background: var(--mode-accent);
+    box-shadow:
+      0 0 10px var(--mode-accent),
+      0 0 18px var(--mode-accent);
+  }
+}
+
 /* ===== Segmented group ===== */
 .seg-group {
   display: inline-flex;
@@ -1041,6 +1260,57 @@ onUnmounted(() => {
 }
 .readout-emoji {
   font-size: 1.15em;
+}
+
+/* Multi-line row for genres — label on top, pills wrap below */
+.readout-row-genres {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+.readout-row-genres dt {
+  text-align: left;
+}
+.genres-dd {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  text-align: left;
+  max-height: 110px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+.genre-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.22rem 0.55rem;
+  border-radius: var(--radius-full);
+  font-family: var(--font-body);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  line-height: 1.4;
+}
+.pill-label {
+  font-family: var(--font-display);
+}
+.pill-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.pill-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+}
+.pill-dot-on {
+  background: currentColor;
+  box-shadow: 0 0 5px currentColor;
 }
 
 .waiting-typing {
@@ -1180,13 +1450,31 @@ onUnmounted(() => {
   color: rgba(255, 255, 255, 0.95);
 }
 .launch-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
   margin-left: auto;
   font-size: var(--text-sm);
   font-weight: 600;
-  padding: 0.25rem 0.7rem;
-  background: rgba(0, 0, 0, 0.28);
+  padding: 0.3rem 0.85rem;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: var(--radius-full);
   letter-spacing: 1px;
+  text-transform: none;
+}
+.meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
+}
+.meta-emoji {
+  font-size: 1.05em;
+}
+.meta-sep {
+  opacity: 0.4;
+  font-weight: 400;
 }
 .launch-hint {
   text-align: center;
