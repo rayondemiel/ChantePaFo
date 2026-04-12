@@ -128,6 +128,11 @@ def public_room(room: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in room.items() if k not in _PRIVATE_ROOM_FIELDS}
 
 
+def _parse_room_json(raw: str) -> dict[str, Any]:
+    """Parse a Redis Lua result into a room dict with proper typing."""
+    return cast("dict[str, Any]", json.loads(raw))
+
+
 class RoomService:
     def __init__(self, redis: Redis) -> None:
         self.redis = redis
@@ -183,7 +188,7 @@ class RoomService:
         )
         if result is None or result == "full":
             return None
-        return cast("dict[str, Any]", json.loads(result))
+        return _parse_room_json(result)
 
     async def leave_room(self, code: str, player_id: str) -> dict[str, Any] | None:
         result = await self._eval(
@@ -194,7 +199,7 @@ class RoomService:
         )
         if result is None:
             return None
-        return cast("dict[str, Any]", json.loads(result))
+        return _parse_room_json(result)
 
     async def update_settings(
         self, code: str, host_id: str, settings: dict[str, Any]
@@ -208,7 +213,7 @@ class RoomService:
         )
         if result is None or result == "forbidden":
             return None
-        return cast("dict[str, Any]", json.loads(result))
+        return _parse_room_json(result)
 
     async def set_status(self, code: str, status: str) -> dict[str, Any] | None:
         result = await self._eval(
@@ -219,4 +224,4 @@ class RoomService:
         )
         if result is None:
             return None
-        return cast("dict[str, Any]", json.loads(result))
+        return _parse_room_json(result)
