@@ -1,5 +1,5 @@
 import json
-from typing import Any
+from typing import Any, cast
 
 from redis.asyncio import Redis
 
@@ -12,6 +12,112 @@ MAX_PLAYERS = 10
 # Server-side fields that must never be exposed to clients.
 _PRIVATE_ROOM_FIELDS = frozenset({"host_id"})
 
+# ---------------------------------------------------------------------------
+# Atomic Lua scripts — executed via EVAL to prevent TOCTOU race conditions.
+# Each script performs GET → modify → SET in a single atomic Redis operation.
+# ---------------------------------------------------------------------------
+
+_LUA_JOIN_ROOM = """
+-- KEYS[1] = room key
+-- ARGV[1] = max_players (int)
+-- ARGV[2] = player_id (string)
+-- ARGV[3] = player_name (string)
+-- ARGV[4] = ttl (int)
+-- Returns: updated room JSON, or nil if room not found, or "full" if at capacity
+local data = redis.call('GET', KEYS[1])
+if not data then return nil end
+local room = cjson.decode(data)
+if #room.players >= tonumber(ARGV[1]) then return 'full' end
+
+-- Check if player already exists
+for _, p in ipairs(room.players) do
+    if p.id == ARGV[2] then
+        -- Already in room, just refresh TTL and return
+        redis.call('SET', KEYS[1], data, 'EX', tonumber(ARGV[4]))
+        return data
+    end
+end
+
+-- Add player
+table.insert(room.players, {id = ARGV[2], name = ARGV[3], is_host = false})
+local updated = cjson.encode(room)
+redis.call('SET', KEYS[1], updated, 'EX', tonumber(ARGV[4]))
+return updated
+"""
+
+_LUA_LEAVE_ROOM = """
+-- KEYS[1] = room key
+-- ARGV[1] = player_id
+-- ARGV[2] = ttl
+-- Returns: updated room JSON, or nil if not found, or closed JSON if room emptied
+local data = redis.call('GET', KEYS[1])
+if not data then return nil end
+local room = cjson.decode(data)
+
+-- Remove player
+local was_host = (room.host_id == ARGV[1])
+local remaining = {}
+for _, p in ipairs(room.players) do
+    if p.id ~= ARGV[1] then
+        table.insert(remaining, p)
+    end
+end
+room.players = remaining
+
+-- If empty, delete and return closed
+if #remaining == 0 then
+    redis.call('DEL', KEYS[1])
+    return cjson.encode({code = room.code, players = {}, settings = room.settings, status = 'closed'})
+end
+
+-- Promote new host if needed
+if was_host then
+    room.host_id = remaining[1].id
+    for i, p in ipairs(room.players) do
+        room.players[i].is_host = (p.id == room.host_id)
+    end
+end
+
+local updated = cjson.encode(room)
+redis.call('SET', KEYS[1], updated, 'EX', tonumber(ARGV[2]))
+return updated
+"""
+
+_LUA_UPDATE_SETTINGS = """
+-- KEYS[1] = room key
+-- ARGV[1] = host_id (for authorization check)
+-- ARGV[2] = settings JSON (partial, to merge)
+-- ARGV[3] = ttl
+-- Returns: updated room JSON, or nil if not found, or "forbidden" if not host
+local data = redis.call('GET', KEYS[1])
+if not data then return nil end
+local room = cjson.decode(data)
+if room.host_id ~= ARGV[1] then return 'forbidden' end
+
+local new_settings = cjson.decode(ARGV[2])
+for k, v in pairs(new_settings) do
+    room.settings[k] = v
+end
+
+local updated = cjson.encode(room)
+redis.call('SET', KEYS[1], updated, 'EX', tonumber(ARGV[3]))
+return updated
+"""
+
+_LUA_SET_STATUS = """
+-- KEYS[1] = room key
+-- ARGV[1] = new status
+-- ARGV[2] = ttl
+-- Returns: updated room JSON, or nil
+local data = redis.call('GET', KEYS[1])
+if not data then return nil end
+local room = cjson.decode(data)
+room.status = ARGV[1]
+local updated = cjson.encode(room)
+redis.call('SET', KEYS[1], updated, 'EX', tonumber(ARGV[2]))
+return updated
+"""
+
 
 def public_room(room: dict[str, Any]) -> dict[str, Any]:
     """Return a copy of the room dict with server-only fields stripped.
@@ -22,8 +128,13 @@ def public_room(room: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in room.items() if k not in _PRIVATE_ROOM_FIELDS}
 
 
+def _parse_room_json(raw: str) -> dict[str, Any]:
+    """Parse a Redis Lua result into a room dict with proper typing."""
+    return cast("dict[str, Any]", json.loads(raw))
+
+
 class RoomService:
-    def __init__(self, redis: Redis):
+    def __init__(self, redis: Redis) -> None:
         self.redis = redis
 
     def _key(self, code: str) -> str:
@@ -57,56 +168,60 @@ class RoomService:
         data = await self.redis.get(self._key(code))
         return json.loads(data) if data else None
 
+    async def _eval(self, script: str, key: str, *args: Any) -> str | None:
+        """Run a Lua script atomically and return the raw string result (or None)."""
+        raw = self.redis.eval(script, 1, key, *args)
+        # redis-py stubs type eval() as Awaitable[str] | str depending on
+        # whether the client is async or sync; in async mode it is always
+        # awaitable, so we cast to satisfy mypy.
+        result: str | None = await cast("Any", raw)
+        return result
+
     async def join_room(self, code: str, player_id: str, player_name: str) -> dict[str, Any] | None:
-        room = await self.get_room(code)
-        if not room:
+        result = await self._eval(
+            _LUA_JOIN_ROOM,
+            self._key(code),
+            MAX_PLAYERS,
+            player_id,
+            player_name,
+            ROOM_TTL,
+        )
+        if result is None or result == "full":
             return None
-        if len(room["players"]) >= MAX_PLAYERS:
-            return None
-
-        existing_ids = {p["id"] for p in room["players"]}
-        if player_id not in existing_ids:
-            room["players"].append({"id": player_id, "name": player_name, "is_host": False})
-
-        await self.redis.set(self._key(code), json.dumps(room), ex=ROOM_TTL)
-        return room
+        return _parse_room_json(result)
 
     async def leave_room(self, code: str, player_id: str) -> dict[str, Any] | None:
-        room = await self.get_room(code)
-        if not room:
+        result = await self._eval(
+            _LUA_LEAVE_ROOM,
+            self._key(code),
+            player_id,
+            ROOM_TTL,
+        )
+        if result is None:
             return None
-        was_host = room["host_id"] == player_id
-        room["players"] = [p for p in room["players"] if p["id"] != player_id]
-        if not room["players"]:
-            await self.redis.delete(self._key(code))
-            return {
-                "code": code,
-                "players": [],
-                "settings": room["settings"],
-                "status": "closed",
-            }
-        if was_host:
-            new_host = room["players"][0]
-            room["host_id"] = new_host["id"]
-            for p in room["players"]:
-                p["is_host"] = p["id"] == new_host["id"]
-        await self.redis.set(self._key(code), json.dumps(room), ex=ROOM_TTL)
-        return room
+        return _parse_room_json(result)
 
     async def update_settings(
         self, code: str, host_id: str, settings: dict[str, Any]
     ) -> dict[str, Any] | None:
-        room = await self.get_room(code)
-        if not room or room["host_id"] != host_id:
+        result = await self._eval(
+            _LUA_UPDATE_SETTINGS,
+            self._key(code),
+            host_id,
+            json.dumps(settings),
+            ROOM_TTL,
+        )
+        if result is None or result == "forbidden":
             return None
-        room["settings"].update(settings)
-        await self.redis.set(self._key(code), json.dumps(room), ex=ROOM_TTL)
-        return room
+        return _parse_room_json(result)
 
     async def set_status(self, code: str, status: str) -> dict[str, Any] | None:
-        room = await self.get_room(code)
-        if not room:
+        result = await self._eval(
+            _LUA_SET_STATUS,
+            self._key(code),
+            status,
+            ROOM_TTL,
+        )
+        if result is None:
             return None
-        room["status"] = status
-        await self.redis.set(self._key(code), json.dumps(room), ex=ROOM_TTL)
-        return room
+        return _parse_room_json(result)

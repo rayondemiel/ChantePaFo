@@ -8,7 +8,7 @@ class GameMode(ABC):
     @abstractmethod
     async def start(
         self,
-        players: list[str],
+        players: list[dict[str, Any]],
         settings: dict[str, Any],
         track_provider: Any,
     ) -> None:
@@ -55,7 +55,7 @@ class GameSession:
 
     async def start(
         self,
-        players: list[str],
+        players: list[dict[str, Any]],
         settings: dict[str, Any],
         track_provider: Any,
     ) -> None:

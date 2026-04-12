@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 
 from app.game.engine import GameMode, GameRegistry, GameSession
@@ -6,18 +8,22 @@ from app.game.engine import GameMode, GameRegistry, GameSession
 class FakeMode(GameMode):
     name = "fake"
 
-    async def start(self, players: list[str], settings: dict, track_provider: object) -> None:
-        self.state = {"phase": "playing", "round": 1}
+    async def start(
+        self, players: list[dict[str, Any]], settings: dict[str, Any], track_provider: Any
+    ) -> None:
+        self.state: dict[str, Any] = {"phase": "playing", "round": 1}
 
-    async def handle_event(self, event_type: str, player_id: str, data: dict) -> dict | None:
+    async def handle_event(
+        self, event_type: str, player_id: str, data: dict[str, Any]
+    ) -> dict[str, Any] | None:
         if event_type == "answer":
             return {"type": "answer_result", "correct": True}
         return None
 
-    def get_state(self) -> dict:
-        return self.state  # type: ignore[return-value]
+    def get_state(self) -> dict[str, Any]:
+        return self.state
 
-    async def end(self) -> dict:
+    async def end(self) -> dict[str, Any]:
         return {"winner": "p1", "scores": {"p1": 100}}
 
 
@@ -45,7 +51,11 @@ async def test_game_session_lifecycle() -> None:
     mode = FakeMode()
     session = GameSession(mode)
 
-    await session.start(players=["p1", "p2"], settings={}, track_provider=None)
+    await session.start(
+        players=[{"id": "p1", "name": "Player1"}, {"id": "p2", "name": "Player2"}],
+        settings={},
+        track_provider=None,
+    )
     assert session.get_state()["phase"] == "playing"
 
     result = await session.handle_event("answer", "p1", {})
@@ -69,7 +79,7 @@ async def test_session_active_after_start() -> None:
     mode = FakeMode()
     session = GameSession(mode)
     assert session.active is False
-    await session.start(players=["p1"], settings={}, track_provider=None)
+    await session.start(players=[{"id": "p1", "name": "Player1"}], settings={}, track_provider=None)
     assert session.active is True
 
 
@@ -77,9 +87,23 @@ async def test_session_active_after_start() -> None:
 async def test_session_inactive_after_end() -> None:
     mode = FakeMode()
     session = GameSession(mode)
-    await session.start(players=["p1"], settings={}, track_provider=None)
+    await session.start(players=[{"id": "p1", "name": "Player1"}], settings={}, track_provider=None)
     await session.end()
     assert session.active is False
+
+
+@pytest.mark.asyncio
+async def test_engine_start_accepts_player_dicts() -> None:
+    """Bug 4: GameSession.start must accept list[dict] players without type errors."""
+    mode = FakeMode()
+    session = GameSession(mode)
+    players: list[dict[str, Any]] = [
+        {"id": "p1", "name": "Alice"},
+        {"id": "p2", "name": "Bob"},
+    ]
+    # Must not raise — signature now accepts list[dict[str, Any]]
+    await session.start(players=players, settings={}, track_provider=None)
+    assert session.active is True
 
 
 def test_registry_overwrite_mode() -> None:
@@ -90,16 +114,23 @@ def test_registry_overwrite_mode() -> None:
     class AnotherFake(GameMode):
         name = "fake"
 
-        async def start(self, players: list[str], settings: dict, track_provider: object) -> None:
+        async def start(
+            self,
+            players: list[dict[str, Any]],
+            settings: dict[str, Any],
+            track_provider: Any,
+        ) -> None:
             pass
 
-        async def handle_event(self, event_type: str, player_id: str, data: dict) -> dict | None:
+        async def handle_event(
+            self, event_type: str, player_id: str, data: dict[str, Any]
+        ) -> dict[str, Any] | None:
             return None
 
-        def get_state(self) -> dict:
+        def get_state(self) -> dict[str, Any]:
             return {}
 
-        async def end(self) -> dict:
+        async def end(self) -> dict[str, Any]:
             return {}
 
     registry.register(AnotherFake)

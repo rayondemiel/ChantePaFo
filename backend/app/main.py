@@ -18,6 +18,7 @@ from app.config import settings
 from app.database import create_tables
 from app.logging_config import configure_logging, get_logger
 from app.middlewares.metrics import PrometheusMiddleware
+from app.middlewares.security_headers import SecurityHeadersMiddleware
 from app.rooms.router import router as rooms_router
 
 configure_logging()
@@ -36,6 +37,7 @@ sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins=settings.cors
 
 app = FastAPI(title="ChantePaFo", version="0.1.0", lifespan=lifespan)
 app.add_middleware(PrometheusMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -49,6 +51,10 @@ app.mount("/uploads", StaticFiles(directory=settings.upload_dir), name="uploads"
 
 app.include_router(auth_router)
 app.include_router(rooms_router)
+
+from app.audio.router import router as audio_router  # noqa: E402
+
+app.include_router(audio_router)
 
 socket_app = socketio.ASGIApp(sio, other_asgi_app=app)
 
@@ -93,6 +99,9 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+from app.game import blindtest as _blindtest  # noqa: F401, E402
+from app.game import karaoke as _karaoke  # noqa: F401, E402
+from app.game import telephone as _telephone  # noqa: F401, E402
 from app.sockets.handlers import register_handlers  # noqa: E402
 
 register_handlers()
