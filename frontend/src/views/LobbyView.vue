@@ -1,8 +1,25 @@
 <template>
   <div v-if="roomStore.room" class="lobby">
     <div class="zone-info">
-      <p class="room-code">{{ roomStore.room.code }}</p>
-      <p class="share-hint">Partage ce code à tes potes !</p>
+      <button
+        type="button"
+        class="room-code room-code-btn"
+        :aria-label="`Copier le code ${roomStore.room.code}`"
+        @click="copyCode"
+      >
+        {{ roomStore.room.code }}
+      </button>
+      <p class="share-hint">
+        <span>{{ roomStore.room.players.length }}/10 joueurs • Partage ce code à tes potes !</span>
+      </p>
+      <div class="share-actions">
+        <button class="btn btn-ghost btn-sm" @click="copyCode">📋 Copier</button>
+        <button v-if="canNativeShare" class="btn btn-ghost btn-sm" @click="nativeShare">
+          📤 Partager
+        </button>
+        <button class="btn btn-ghost btn-sm" @click="leaveRoom">🚪 Quitter</button>
+      </div>
+      <p v-if="toast" class="toast">{{ toast }}</p>
     </div>
 
     <div class="zone-content">
@@ -73,13 +90,57 @@ const props = defineProps<{ code: string }>()
 const router = useRouter()
 const roomStore = useRoomStore()
 const gameStore = useGameStore()
-const { emit: socketEmit, on, off } = useSocket()
+const { emit: socketEmit, on, off, disconnect: socketDisconnect } = useSocket()
 
 const auth = useAuthStore()
 const gameMode = ref('blindtest')
 const numRounds = ref(10)
 const karaokeVariant = ref('classic')
 const errorMsg = ref('')
+const toast = ref('')
+const canNativeShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function'
+
+let toastTimer: ReturnType<typeof setTimeout> | null = null
+function showToast(message: string) {
+  toast.value = message
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => {
+    toast.value = ''
+  }, 2000)
+}
+
+async function copyCode() {
+  if (!roomStore.room) return
+  try {
+    await navigator.clipboard.writeText(roomStore.room.code)
+    showToast('Code copié !')
+  } catch {
+    showToast('Impossible de copier')
+  }
+}
+
+async function nativeShare() {
+  if (!roomStore.room || !navigator.share) return
+  try {
+    await navigator.share({
+      title: 'ChantePaFo',
+      text: `Rejoins ma partie ChantePaFo avec le code ${roomStore.room.code} !`,
+      url: window.location.href,
+    })
+  } catch {
+    // user cancelled share — silent
+  }
+}
+
+function leaveRoom() {
+  if (!roomStore.room) return
+  if (!window.confirm('Quitter la room ?')) return
+  // Disconnecting triggers the server-side _handle_disconnect which
+  // calls svc.leave_room and broadcasts room_updated to the other players.
+  socketDisconnect()
+  roomStore.clearRoom()
+  router.push('/')
+}
 
 function updateSettings() {
   socketEmit('update_settings', {
@@ -125,6 +186,7 @@ function onPlayerKicked(data: unknown) {
   const d = data as { player_id?: string }
   if (d.player_id === auth.userId) {
     roomStore.clearRoom()
+    window.alert("Tu as été exclu de la room par l'hôte.")
     router.push('/')
   }
 }
@@ -166,10 +228,53 @@ onUnmounted(() => {
   flex-direction: column;
   min-height: 100vh;
 }
+.room-code-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  display: block;
+  margin: 0 auto;
+}
+.room-code-btn:hover {
+  opacity: 0.85;
+}
 .share-hint {
   text-align: center;
   color: var(--color-text-muted);
   font-size: var(--text-sm);
+}
+.share-actions {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  margin-top: var(--space-sm);
+}
+.btn-ghost {
+  background: transparent;
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.15));
+  color: var(--color-text);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  transition: background 0.15s;
+}
+.btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.btn-sm {
+  font-size: var(--text-sm);
+}
+.toast {
+  text-align: center;
+  color: var(--color-primary);
+  font-size: var(--text-sm);
+  margin-top: var(--space-xs);
+  animation: fadeIn 0.2s ease-out;
 }
 h3 {
   font-size: var(--text-lg);
