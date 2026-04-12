@@ -35,7 +35,7 @@ class RoomService:
             "players": [{"id": host_id, "name": host_name, "is_host": True}],
             "settings": {
                 "game_mode": "blindtest",
-                "genres": ["all"],
+                "genres": {"all": 2},
                 "num_rounds": 10,
                 "extract_duration": 20,
                 "karaoke_variant": "classic",

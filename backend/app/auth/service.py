@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import bcrypt
-from jose import jwt
+import jwt
 
 from app.config import settings
 
@@ -30,13 +30,12 @@ def create_access_token(user_id: str, username: str) -> str:
         "iat": now,
         "iss": ISSUER,
     }
-    return str(jwt.encode(payload, settings.secret_key, algorithm=ALGORITHM))
+    return jwt.encode(payload, settings.secret_key, algorithm=ALGORITHM)
 
 
 def decode_token(token: str) -> dict[str, Any]:
-    # JWTError (and subclasses) are intentionally allowed to propagate —
+    # InvalidTokenError (and subclasses) are intentionally allowed to propagate —
     # callers (e.g. get_current_user dependency) handle them.
-    # issuer= verifies the "iss" claim value matches ISSUER.
     result: dict[str, Any] = jwt.decode(
         token,
         settings.secret_key,

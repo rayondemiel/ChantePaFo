@@ -38,6 +38,6 @@ class PrometheusMiddleware:
             # Prefer route template (e.g. /rooms/{code}) to bound label cardinality.
             route = scope.get("route")
             route_template = getattr(route, "path", None) if route is not None else None
-            label_path = route_template or path or "unknown"
+            label_path = route_template or "unmatched"
             HTTP_REQUEST_DURATION_SECONDS.labels(method, label_path).observe(duration)
             HTTP_REQUESTS_TOTAL.labels(method, label_path, str(status_holder["status"])).inc()

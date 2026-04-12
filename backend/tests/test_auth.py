@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta, timezone
 
+import jwt
 import pytest
-from jose import JWTError, jwt
+from jwt.exceptions import InvalidTokenError
 
 from app.auth.service import (
     ALGORITHM,
@@ -255,5 +256,5 @@ def test_decode_token_rejects_wrong_issuer():
         "exp": datetime.now(timezone.utc) + timedelta(hours=1),
     }
     bad_token = jwt.encode(bad_payload, settings.secret_key, algorithm=ALGORITHM)
-    with pytest.raises(JWTError):
+    with pytest.raises(InvalidTokenError):
         decode_token(bad_token)
