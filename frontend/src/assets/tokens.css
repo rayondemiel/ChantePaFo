@@ -39,6 +39,15 @@
   --tone-disco: #ffd700;
   --tone-jazz: #daa520;
 
+  /* RGB triplets for the tones so .chip-* backgrounds/borders can build
+     translucent variants via rgba(var(--tone-X-rgb), 0.12). */
+  --tone-pop-rgb: 255, 105, 180;
+  --tone-rock-rgb: 220, 20, 60;
+  --tone-rap-rgb: 180, 77, 255;
+  --tone-electro-rgb: 0, 240, 255;
+  --tone-disco-rgb: 255, 215, 0;
+  --tone-jazz-rgb: 218, 165, 32;
+
   /* Surfaces */
   --color-bg: #0a0a1a;
   --color-surface: #1a1a2e;
