@@ -13,8 +13,8 @@
       </div>
 
       <div class="zone-content">
-        <p class="phase-label">{{ gameStore.state.phase }}</p>
-        <!-- Game mode components will be added in Tasks 21-26 -->
+        <BlindtestRound v-if="gameMode === 'blindtest'" />
+        <p v-else class="phase-label">{{ gameStore.state.phase }}</p>
       </div>
 
       <div v-if="gameStore.awards.length > 0" class="zone-actions">
@@ -34,16 +34,21 @@ import { computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useGameStore } from '../stores/game'
+import { useRoomStore } from '../stores/room'
 import { useAmbianceStore } from '../stores/ambiance'
 import { useSocket } from '../composables/useSocket'
+import BlindtestRound from '../components/BlindtestRound.vue'
 import type { GameState, AmbianceConfig, Award } from '../types'
 
 defineProps<{ code: string }>()
 const router = useRouter()
 const auth = useAuthStore()
 const gameStore = useGameStore()
+const roomStore = useRoomStore()
 const ambianceStore = useAmbianceStore()
 const { connect: socketConnect, on, off } = useSocket()
+
+const gameMode = computed(() => roomStore.room?.settings.game_mode)
 
 const phaseName = computed(() => {
   const phase = gameStore.state?.phase
