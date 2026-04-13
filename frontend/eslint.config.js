@@ -26,6 +26,8 @@ export default [
         clearTimeout: 'readonly',
         MediaQueryList: 'readonly',
         MediaQueryListEvent: 'readonly',
+        HTMLDialogElement: 'readonly',
+        MouseEvent: 'readonly',
       },
     },
   },

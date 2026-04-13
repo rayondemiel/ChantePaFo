@@ -77,7 +77,7 @@ const PSEUDO_STORAGE_KEY = 'chantepafo.pseudo'
 
 const hostInput = ref<HTMLInputElement | null>(null)
 const savedPseudo =
-  typeof localStorage !== 'undefined' ? (localStorage.getItem(PSEUDO_STORAGE_KEY) ?? '') : ''
+  typeof localStorage === 'undefined' ? '' : (localStorage.getItem(PSEUDO_STORAGE_KEY) ?? '')
 const hostName = ref(savedPseudo)
 const joinCode = ref('')
 const joinName = ref(savedPseudo)

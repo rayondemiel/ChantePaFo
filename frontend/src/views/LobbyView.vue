@@ -79,8 +79,8 @@
         </div>
 
         <div class="field">
-          <label class="field-label">Mode</label>
-          <div class="mode-grid">
+          <span class="field-label">Mode</span>
+          <div class="mode-grid" role="group" aria-label="Mode">
             <button
               v-for="mode in MODES"
               :key="mode.id"
@@ -115,8 +115,8 @@
         </div>
 
         <div v-if="gameMode === 'karaoke'" class="field field-inline">
-          <label class="field-label">Variante</label>
-          <div class="seg-group">
+          <span class="field-label">Variante</span>
+          <div class="seg-group" role="group" aria-label="Variante">
             <button
               type="button"
               class="seg"
@@ -137,8 +137,8 @@
         </div>
 
         <div class="field field-inline">
-          <label class="field-label">Manches</label>
-          <div class="seg-group seg-group-tight">
+          <span class="field-label">Manches</span>
+          <div class="seg-group seg-group-tight" role="group" aria-label="Manches">
             <button
               v-for="n in ROUND_OPTIONS"
               :key="n"
@@ -153,7 +153,7 @@
         </div>
 
         <div class="field">
-          <label class="field-label">Genres</label>
+          <span class="field-label">Genres</span>
           <GenreSelector @update="onGenresUpdate" />
         </div>
       </section>
@@ -369,7 +369,7 @@ async function nativeShare() {
     await navigator.share({
       title: 'ChantePaFo',
       text: `Rejoins ma partie ChantePaFo avec le code ${roomStore.room.code} !`,
-      url: window.location.href,
+      url: globalThis.location.href,
     })
   } catch {
     // user cancelled share — silent

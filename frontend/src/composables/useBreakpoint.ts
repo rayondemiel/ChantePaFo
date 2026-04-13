@@ -38,8 +38,8 @@ function createBreakpointRef(query: string): BreakpointState {
   }
 
   onMounted(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return
-    mql = window.matchMedia(query)
+    if (typeof globalThis === 'undefined' || !globalThis.matchMedia) return
+    mql = globalThis.matchMedia(query)
     sync()
     mql.addEventListener('change', sync)
   })

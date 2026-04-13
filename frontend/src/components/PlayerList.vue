@@ -69,8 +69,9 @@ const currentUserId = auth.userId
  */
 function getPlayerHue(id: string): number {
   let h = 5381
-  for (let i = 0; i < id.length; i++) {
-    h = ((h << 5) + h + id.charCodeAt(i)) >>> 0
+  for (const ch of id) {
+    // codePointAt(0) handles surrogate pairs correctly, unlike charCodeAt.
+    h = ((h << 5) + h + (ch.codePointAt(0) ?? 0)) >>> 0
   }
   return h % 360
 }

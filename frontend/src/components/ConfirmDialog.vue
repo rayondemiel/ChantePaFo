@@ -1,21 +1,29 @@
 <template>
-  <Transition name="modal">
-    <div v-if="open" class="modal-backdrop" role="dialog" aria-modal="true" @click.self="cancel">
-      <div class="modal-card" :class="{ 'modal-danger': variant === 'danger' }">
-        <h3 class="modal-title text-display">{{ title }}</h3>
-        <p class="modal-message">{{ message }}</p>
-        <div class="modal-actions">
-          <button v-if="cancelText" class="btn btn-ghost" @click="cancel">
-            {{ cancelText }}
-          </button>
-          <button class="btn btn-danger" @click="confirm">{{ confirmText }}</button>
-        </div>
+  <dialog
+    v-if="open"
+    ref="dialogEl"
+    class="modal-dialog"
+    :class="{ 'modal-danger': variant === 'danger' }"
+    @click="onBackdropClick"
+    @close.prevent="cancel"
+    @cancel.prevent="cancel"
+  >
+    <div class="modal-card">
+      <h3 class="modal-title text-display">{{ title }}</h3>
+      <p class="modal-message">{{ message }}</p>
+      <div class="modal-actions">
+        <button v-if="cancelText" class="btn btn-ghost" @click="cancel">
+          {{ cancelText }}
+        </button>
+        <button class="btn btn-danger" @click="confirm">{{ confirmText }}</button>
       </div>
     </div>
-  </Transition>
+  </dialog>
 </template>
 
 <script setup lang="ts">
+import { ref, onMounted } from 'vue'
+
 withDefaults(
   defineProps<{
     open: boolean
@@ -37,37 +45,68 @@ const emit = defineEmits<{
   cancel: []
 }>()
 
+const dialogEl = ref<HTMLDialogElement | null>(null)
+
+// Promote the freshly-mounted dialog to a real modal: showModal() puts it
+// in the top layer (above every stacking context), traps focus inside,
+// handles the Escape key and paints the ::backdrop pseudo — all for free.
+// Falls back to the plain `open` attribute in jsdom or older browsers so
+// the component stays testable and degrades to a non-modal dialog.
+onMounted(() => {
+  const el = dialogEl.value
+  if (!el) return
+  try {
+    el.showModal()
+  } catch {
+    el.setAttribute('open', '')
+  }
+})
+
 function confirm() {
   emit('confirm')
 }
 function cancel() {
   emit('cancel')
 }
+
+// With showModal() the dim backdrop is the ::backdrop pseudo; any click on
+// it lands on the <dialog> element itself, so target === dialogEl means
+// "backdrop click" — click on the modal card has a different target.
+function onBackdropClick(e: MouseEvent) {
+  if (e.target === dialogEl.value) cancel()
+}
 </script>
 
 <style scoped>
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(var(--color-bg-rgb), 0.75);
-  backdrop-filter: blur(6px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: var(--space-md);
+/* ===== Native <dialog> with showModal() =====
+   The dialog lives in the top layer when showModal() runs; we reset the
+   UA defaults and draw our own neon card inside. The ::backdrop pseudo
+   handles the dim overlay — no extra DOM needed. */
+.modal-dialog {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  max-width: min(420px, calc(100vw - 2 * var(--space-md)));
+  max-height: calc(100vh - 2 * var(--space-md));
+  overflow: visible;
+  animation: dialog-pop 0.25s var(--ease-bounce);
 }
+.modal-dialog::backdrop {
+  background: rgba(10, 10, 26, 0.72);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: backdrop-fade 0.2s ease-out;
+}
+
 .modal-card {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   padding: var(--space-lg);
-  max-width: 380px;
-  width: 100%;
   box-shadow: 0 10px 50px rgba(var(--color-black-rgb), 0.5);
-  animation: pop-in 0.25s var(--ease-bounce);
 }
-.modal-danger {
+.modal-danger .modal-card {
   border-color: rgba(var(--color-error-rgb), 0.4);
   box-shadow:
     0 10px 50px rgba(var(--color-black-rgb), 0.5),
@@ -97,23 +136,29 @@ function cancel() {
   justify-content: flex-end;
 }
 
-@keyframes pop-in {
+@keyframes dialog-pop {
   from {
     opacity: 0;
-    transform: scale(0.9) translateY(10px);
+    transform: scale(0.92) translateY(10px);
   }
   to {
     opacity: 1;
     transform: scale(1) translateY(0);
   }
 }
-
-.modal-enter-active,
-.modal-leave-active {
-  transition: opacity 0.2s ease;
+@keyframes backdrop-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
-.modal-enter-from,
-.modal-leave-to {
-  opacity: 0;
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-dialog,
+  .modal-dialog::backdrop {
+    animation: none;
+  }
 }
 </style>
