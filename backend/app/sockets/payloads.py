@@ -73,6 +73,16 @@ class GameEventPayload(_StrictBase):
         return v.upper() if isinstance(v, str) else v
 
 
+class KickPlayerPayload(_StrictBase):
+    code: str = Field(..., pattern=CODE_PATTERN)
+    player_id: str = Field(..., min_length=1, max_length=64)
+
+    @field_validator("code", mode="before")
+    @classmethod
+    def _upper(cls, v: object) -> object:
+        return v.upper() if isinstance(v, str) else v
+
+
 class RequestAmbiancePayload(_StrictBase):
     genre: str = Field(default="", max_length=64)
     moment: str = Field(default="", max_length=64)

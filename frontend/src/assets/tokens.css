@@ -1,0 +1,94 @@
+/* frontend/src/assets/tokens.css */
+
+/* === Fonts === */
+@import url('https://fonts.googleapis.com/css2?family=Righteous&family=Fredoka:wght@400;600;700&display=swap');
+
+:root {
+  /* Core palette */
+  --color-primary: #ff2d95;
+  --color-secondary: #b44dff;
+  --color-accent: #00f0ff;
+  --color-success: #00c853;
+  --color-error: #ff5252;
+  --color-warning: #ffe44d;
+  /* Mid-point between warning (yellow) and primary (hot pink), used in
+     the synthwave-sun gradient and a few hover glows. */
+  --color-sun-mid: #ff6ba5;
+
+  /* RGB triplets for use inside rgba() — e.g. rgba(var(--color-primary-rgb), 0.3).
+     Keep in sync with the hex values above whenever the palette changes. */
+  --color-primary-rgb: 255, 45, 149;
+  --color-secondary-rgb: 180, 77, 255;
+  --color-accent-rgb: 0, 240, 255;
+  --color-success-rgb: 0, 200, 83;
+  --color-error-rgb: 255, 82, 82;
+  --color-warning-rgb: 255, 228, 77;
+  --color-sun-mid-rgb: 255, 107, 165;
+  --color-bg-rgb: 10, 10, 26;
+  --color-surface-rgb: 26, 26, 46;
+  --color-white-rgb: 255, 255, 255;
+  --color-black-rgb: 0, 0, 0;
+
+  /* Genre tone colors — used by both global.css .chip-* rules and the
+     GenreSelector difficulty dots. Kept distinct from the core synthwave
+     palette so each musical genre gets its own identifiable hue. */
+  --tone-pop: #ff69b4;
+  --tone-rock: #dc143c;
+  --tone-rap: #b44dff;
+  --tone-electro: #00f0ff;
+  --tone-disco: #ffd700;
+  --tone-jazz: #daa520;
+
+  /* RGB triplets for the tones so .chip-* backgrounds/borders can build
+     translucent variants via rgba(var(--tone-X-rgb), 0.12). */
+  --tone-pop-rgb: 255, 105, 180;
+  --tone-rock-rgb: 220, 20, 60;
+  --tone-rap-rgb: 180, 77, 255;
+  --tone-electro-rgb: 0, 240, 255;
+  --tone-disco-rgb: 255, 215, 0;
+  --tone-jazz-rgb: 218, 165, 32;
+
+  /* Surfaces */
+  --color-bg: #0a0a1a;
+  --color-surface: #1a1a2e;
+  --color-surface-hover: #2a2a4e;
+
+  /* Text */
+  --color-text: #ffffff;
+  --color-text-muted: #888888;
+  --color-border: rgba(var(--color-white-rgb), 0.06);
+
+  /* Typography */
+  --font-display: 'Righteous', cursive;
+  --font-body: 'Fredoka', sans-serif;
+  --text-xs: 0.7rem;
+  --text-sm: 0.8rem;
+  --text-base: 0.9rem;
+  --text-lg: 1.1rem;
+  --text-xl: 1.3rem;
+  --text-2xl: 2rem;
+  --text-hero: 3rem;
+
+  /* Border radius */
+  --radius-full: 50px;
+  --radius-lg: 16px;
+  --radius-md: 12px;
+  --radius-sm: 8px;
+
+  /* Spacing */
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+
+  /* Easing */
+  --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-smooth: ease;
+
+  /* Ambiance (overridden dynamically by JS) */
+  --ambiance-color-1: #ff2d95;
+  --ambiance-color-2: #00f0ff;
+  --ambiance-intensity: 0.5;
+  --ambiance-pulse-speed: 2s;
+}

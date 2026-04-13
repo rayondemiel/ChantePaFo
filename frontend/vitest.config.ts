@@ -12,17 +12,17 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
+    setupFiles: ['./tests/test-setup.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov', 'html'],
       include: ['src/**/*.{ts,vue}'],
       exclude: ['src/main.ts', 'src/**/*.d.ts', 'src/**/__tests__/**'],
-      // TODO: raise to 80 once real frontend tests land (Task 18b+)
       thresholds: {
-        lines: 0,
-        functions: 0,
-        branches: 0,
-        statements: 0,
+        lines: 80,
+        functions: 75,
+        branches: 75,
+        statements: 80,
       },
     },
   },

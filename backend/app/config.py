@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     metrics_password: str = Field(..., min_length=16)
     deezer_api_base: str = "https://api.deezer.com"
     upload_dir: str = "uploads"
-    cors_origins: list[str] = ["http://localhost:5173"]
+    cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
     log_level: str = "INFO"
 
     model_config = SettingsConfigDict(

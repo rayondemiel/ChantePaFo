@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 import socketio
 from jwt.exceptions import InvalidTokenError
 from pydantic import ValidationError
@@ -19,10 +21,11 @@ from app.metrics import (
 from app.models import User
 from app.music.deezer import DeezerClient
 from app.rooms.schemas import PartialRoomSettings
-from app.rooms.service import RoomService, public_room
+from app.rooms.service import ROOM_TTL, RoomService, public_room
 from app.sockets.payloads import (
     GameEventPayload,
     JoinRoomPayload,
+    KickPlayerPayload,
     ReactionPayload,
     RequestAmbiancePayload,
     SoundboardPayload,
@@ -38,6 +41,16 @@ _ERR_ROOM_NOT_FOUND_OR_FULL = "Room not found or full"
 _ERR_HOST_ONLY_SETTINGS = "Only the host can update settings"
 _ERR_HOST_ONLY_START = "Only the host can start the game"
 _ERR_NO_ACTIVE_SESSION = "No active game session for this room"
+_ERR_KICKED = "You have been removed from this room"
+
+
+def _kicked_key(code: str, user_id: str) -> str:
+    return f"kicked:{code}:{user_id}"
+
+
+def _room_sids_key(code: str) -> str:
+    return f"room_sids:{code}"
+
 
 # In-memory game sessions, keyed by room code.
 # Lives in the process — acceptable for single-worker MVP.
@@ -97,6 +110,7 @@ async def _handle_disconnect(sid: str) -> None:
                 )
                 await sio.emit("room_updated", public_room(room), room=room_code)
         await redis.delete(f"player_room:{sid}")
+        await cast("Any", redis.srem(_room_sids_key(room_code), sid))
 
         # Cleanup: if no players left in the room, end the game session
         if room_code in _active_sessions:
@@ -119,6 +133,18 @@ async def _handle_join_room(sid: str, data: object) -> None:
     username = session.get("username") or user_id
 
     redis = get_redis()
+
+    # Reject rejoin attempts from kicked users until the ban key expires.
+    if await redis.exists(_kicked_key(payload.code, user_id)):
+        logger.warning(
+            "join_room blocked (kicked) sid=%s room=%s user_id=%s",
+            sid,
+            payload.code,
+            user_id,
+        )
+        await sio.emit("error", {"message": _ERR_KICKED}, to=sid)
+        return
+
     svc = RoomService(redis)
     room = await svc.join_room(payload.code, player_id=user_id, player_name=username)
     if not room:
@@ -127,7 +153,11 @@ async def _handle_join_room(sid: str, data: object) -> None:
         return
 
     await sio.enter_room(sid, payload.code)
-    await redis.set(f"player_room:{sid}", payload.code, ex=1800)
+    # Track the sid in a reverse-lookup set so kicks can find every live
+    # socket for a given user_id.
+    await cast("Any", redis.sadd(_room_sids_key(payload.code), sid))
+    await redis.expire(_room_sids_key(payload.code), ROOM_TTL)
+    await redis.set(f"player_room:{sid}", payload.code, ex=ROOM_TTL)
     logger.info("player joined room sid=%s room=%s user_id=%s", sid, payload.code, user_id)
     await sio.emit("room_updated", public_room(room), room=payload.code)
 
@@ -351,6 +381,90 @@ async def _handle_soundboard(sid: str, data: object) -> None:
     )
 
 
+async def _handle_kick_player(sid: str, data: object) -> None:
+    SOCKETIO_EVENTS_TOTAL.labels(event="kick_player").inc()
+    try:
+        payload = KickPlayerPayload.model_validate(data)
+    except ValidationError:
+        await sio.emit("error", {"message": "Invalid kick_player payload"}, to=sid)
+        return
+
+    sio_session = await sio.get_session(sid)
+    user_id: str = sio_session["user_id"]
+
+    if payload.code not in sio.rooms(sid):
+        await sio.emit("error", {"message": _ERR_NOT_IN_ROOM}, to=sid)
+        return
+
+    redis = get_redis()
+    svc = RoomService(redis)
+    room = await svc.get_room(payload.code)
+    if room is None:
+        await sio.emit("error", {"message": _ERR_ROOM_NOT_FOUND}, to=sid)
+        return
+    if room["host_id"] != user_id:
+        await sio.emit("error", {"message": "Only the host can kick players"}, to=sid)
+        return
+    if payload.player_id == user_id:
+        await sio.emit("error", {"message": "Cannot kick yourself"}, to=sid)
+        return
+
+    # The target must actually be in the room — otherwise the host could
+    # inject any player_id into the player_kicked broadcast.
+    member_ids = {p["id"] for p in room.get("players", [])}
+    if payload.player_id not in member_ids:
+        await sio.emit("error", {"message": "Player is not in this room"}, to=sid)
+        return
+
+    # Persist a ban key so the target cannot re-join via join_room.
+    await redis.set(_kicked_key(payload.code, payload.player_id), "1", ex=ROOM_TTL)
+
+    # Find every live socket for the target user — we need them for the
+    # disconnect loop below, but only AFTER broadcasting player_kicked.
+    raw_sids: set[str] = await cast("Any", redis.smembers(_room_sids_key(payload.code)))
+    target_sids: list[str] = []
+    for other_sid in raw_sids:
+        other_session = await sio.get_session(other_sid)
+        if other_session and other_session.get("user_id") == payload.player_id:
+            target_sids.append(other_sid)
+
+    # Broadcast player_kicked BEFORE disconnecting the target, otherwise the
+    # target leaves the socketio room first and never receives the event —
+    # they'd just see a silent disconnect with no explanation in the UI.
+    await sio.emit(
+        "player_kicked",
+        {
+            "player_id": payload.player_id,
+            "reason": "Exclu par l'hôte",
+        },
+        room=payload.code,
+    )
+
+    # Now disconnect the target's sockets so they can no longer emit events
+    # from an already-open session.
+    for target_sid in target_sids:
+        try:
+            await sio.leave_room(target_sid, payload.code)
+            await sio.disconnect(target_sid)
+        except Exception:  # noqa: BLE001
+            logger.exception("failed to disconnect kicked sid=%s", target_sid)
+        await cast("Any", redis.srem(_room_sids_key(payload.code), target_sid))
+        await redis.delete(f"player_room:{target_sid}")
+
+    updated_room = await svc.leave_room(payload.code, payload.player_id)
+
+    if updated_room:
+        await sio.emit("room_updated", public_room(updated_room), room=payload.code)
+
+    logger.info(
+        "player kicked room=%s kicked=%s by=%s sids=%d",
+        payload.code,
+        payload.player_id,
+        user_id,
+        len(target_sids),
+    )
+
+
 def register_handlers() -> None:
     sio.on("connect", handler=_handle_connect)
     sio.on("disconnect", handler=_handle_disconnect)
@@ -361,3 +475,4 @@ def register_handlers() -> None:
     sio.on("request_ambiance", handler=_handle_request_ambiance)
     sio.on("reaction", handler=_handle_reaction)
     sio.on("soundboard", handler=_handle_soundboard)
+    sio.on("kick_player", handler=_handle_kick_player)
