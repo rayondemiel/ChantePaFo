@@ -22,6 +22,18 @@ _WORDLIST_PATH = Path(__file__).parent / "wordlist.txt"
 # Longer blocked words keep substring matching to catch leet-speak variants.
 _SUBSTRING_THRESHOLD = 5
 
+# Explicit exact-match overrides for words that would otherwise trip the
+# substring bucket on common French first names or vocabulary. Example:
+# "nique" would block Monique, Dominique, Véronique, unique, technique,
+# communique, etc. These are all accepted as long as the name is not
+# exactly the blocked word.
+_EXACT_MATCH_OVERRIDES: frozenset[str] = frozenset(
+    {
+        "nique",
+        "niquer",
+    }
+)
+
 
 def _load_wordlist() -> tuple[frozenset[str], frozenset[str]]:
     if not _WORDLIST_PATH.exists():
@@ -32,7 +44,7 @@ def _load_wordlist() -> tuple[frozenset[str], frozenset[str]]:
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue
-        if len(stripped) < _SUBSTRING_THRESHOLD:
+        if len(stripped) < _SUBSTRING_THRESHOLD or stripped in _EXACT_MATCH_OVERRIDES:
             short.add(stripped)
         else:
             long_.add(stripped)

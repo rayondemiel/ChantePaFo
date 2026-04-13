@@ -40,3 +40,20 @@ def test_allows_innocent_name_containing_short_slur_substring():
     # names and words that happen to contain them as a substring must pass.
     assert is_prohibited("reputation") is False
     assert is_prohibited("disputes") is False
+
+
+def test_allows_common_french_names_containing_nique():
+    # `nique` / `niquer` are in the exact-match override set so legitimate
+    # first names and words built on the -nique suffix remain allowed.
+    assert is_prohibited("Monique") is False
+    assert is_prohibited("Dominique") is False
+    assert is_prohibited("Véronique") is False
+    assert is_prohibited("unique") is False
+    assert is_prohibited("technique") is False
+    assert is_prohibited("communique") is False
+
+
+def test_still_blocks_nique_as_standalone_slur():
+    # The exact-match bucket still catches the bare slur.
+    assert is_prohibited("nique") is True
+    assert is_prohibited("niquer") is True
