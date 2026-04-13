@@ -166,6 +166,49 @@ describe('HomeView', () => {
     expect(pushSpy).toHaveBeenCalledWith('/FUNK4242')
   })
 
+  it('createRoom retries after 401 by clearing the stale token and re-registering', async () => {
+    // Pre-seed a stale token in localStorage so ensureAuth short-circuits
+    // and createRoom hits the 401 path on the first call to /api/rooms.
+    localStorage.setItem('chantepafo_token', 'expired')
+    localStorage.setItem('chantepafo_username', 'alice')
+    localStorage.setItem('chantepafo_userId', 'u-old')
+
+    let roomsCalls = 0
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+      if (String(url).endsWith('/api/auth/register')) {
+        return new Response(
+          JSON.stringify({ token: 'fresh', username: 'alice', user_id: 'u-new' }),
+          { status: 200 },
+        )
+      }
+      if (String(url).endsWith('/api/rooms')) {
+        roomsCalls++
+        if (roomsCalls === 1) return new Response('{}', { status: 401 })
+        return new Response(
+          JSON.stringify({ room: { code: 'FUNK4242', players: [], settings: {} } }),
+          { status: 200 },
+        )
+      }
+      return new Response('{}', { status: 404 })
+    })
+
+    const { wrapper, router } = await mountHome()
+    const pushSpy = vi.spyOn(router, 'push')
+
+    await wrapper.get('input[placeholder="Ton pseudo"]').setValue('Alice')
+    await wrapper.get('button.btn-primary').trigger('click')
+    await flushPromises()
+
+    // First /api/rooms was 401, we cleared auth, called /api/auth/register,
+    // then retried /api/rooms successfully.
+    expect(roomsCalls).toBe(2)
+    const registerCalls = fetchSpy.mock.calls.filter((c) =>
+      String(c[0]).endsWith('/api/auth/register'),
+    )
+    expect(registerCalls).toHaveLength(1)
+    expect(pushSpy).toHaveBeenCalledWith('/FUNK4242')
+  })
+
   it('joinRoom displays a fallback error when the server response is not JSON', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
       if (String(url).endsWith('/api/auth/register')) {

@@ -142,20 +142,39 @@ async function extractError(resp: Response, fallback: string): Promise<string> {
   return fallback
 }
 
+/**
+ * Run `fetcher` with the current auth token. If it 401s, assume the
+ * persisted JWT has expired, wipe it, re-register a fresh guest, and
+ * retry once. This papers over the zombie-account issue until the
+ * refresh-token flow is implemented server-side.
+ */
+async function authFetchWithReauth(name: string, fetcher: () => Promise<Response>) {
+  let resp = await fetcher()
+  if (resp.status === 401) {
+    authStore.clearAuth()
+    if (!(await ensureAuth(name))) return resp
+    resp = await fetcher()
+  }
+  return resp
+}
+
 async function createRoom() {
   if (!hostName.value.trim()) return
   loading.value = true
   error.value = ''
 
-  if (!(await ensureAuth(hostName.value.trim()))) {
+  const name = hostName.value.trim()
+  if (!(await ensureAuth(name))) {
     loading.value = false
     return
   }
 
-  const resp = await authStore.authFetch('/api/rooms', {
-    method: 'POST',
-    body: JSON.stringify({ host_name: hostName.value.trim() }),
-  })
+  const resp = await authFetchWithReauth(name, () =>
+    authStore.authFetch('/api/rooms', {
+      method: 'POST',
+      body: JSON.stringify({ host_name: name }),
+    }),
+  )
 
   if (!resp.ok) {
     error.value = await extractError(resp, 'Erreur création room')
@@ -175,16 +194,19 @@ async function joinRoom() {
   loading.value = true
   error.value = ''
 
-  if (!(await ensureAuth(joinName.value.trim()))) {
+  const name = joinName.value.trim()
+  if (!(await ensureAuth(name))) {
     loading.value = false
     return
   }
 
   const code = joinCode.value.trim().toUpperCase()
-  const resp = await authStore.authFetch(`/api/rooms/${code}/join`, {
-    method: 'POST',
-    body: JSON.stringify({ player_name: joinName.value.trim() }),
-  })
+  const resp = await authFetchWithReauth(name, () =>
+    authStore.authFetch(`/api/rooms/${code}/join`, {
+      method: 'POST',
+      body: JSON.stringify({ player_name: name }),
+    }),
+  )
 
   if (!resp.ok) {
     error.value = await extractError(resp, 'Room introuvable ou pleine')
