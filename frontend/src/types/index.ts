@@ -25,6 +25,9 @@ export interface GameState {
   total_rounds: number
   total_scores: Record<string, number>
   track?: { preview_url: string; genre: string; cover_url?: string }
+  round_results?: { correct_title: string; correct_artist: string; cover_url?: string }
+  round_scores?: Record<string, number>
+  extract_duration?: number
   [key: string]: unknown
 }
 
