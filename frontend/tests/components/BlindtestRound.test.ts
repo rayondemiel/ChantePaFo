@@ -92,8 +92,9 @@ describe('BlindtestRound', () => {
     expect(call![1]).toMatchObject({
       code: 'FUNK4242',
       event_type: 'countdown_done',
-      player_id: 'u1',
+      payload: {},
     })
+    expect(call![1]).not.toHaveProperty('player_id')
   })
 
   it('renders AnswerInput and audio element during playing phase', async () => {
@@ -133,11 +134,10 @@ describe('BlindtestRound', () => {
     const payload = call![1] as {
       code: string
       event_type: string
-      player_id: string
       payload: { text: string; time_ms: number }
     }
     expect(payload.code).toBe('FUNK4242')
-    expect(payload.player_id).toBe('u1')
+    expect(payload).not.toHaveProperty('player_id')
     expect(payload.payload.text).toBe('Thriller')
     expect(typeof payload.payload.time_ms).toBe('number')
   })

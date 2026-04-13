@@ -134,7 +134,6 @@ function onCountdownDone() {
   socketEmit('game_event', {
     code: roomCode.value,
     event_type: 'countdown_done',
-    player_id: auth.userId,
     payload: {},
   })
 }
@@ -143,7 +142,6 @@ function onAnswer(text: string) {
   socketEmit('game_event', {
     code: roomCode.value,
     event_type: 'answer',
-    player_id: auth.userId,
     payload: { text, time_ms: Date.now() - playStart },
   })
 }
@@ -152,7 +150,6 @@ function onNextRound() {
   socketEmit('game_event', {
     code: roomCode.value,
     event_type: 'next_round',
-    player_id: auth.userId,
     payload: {},
   })
 }
