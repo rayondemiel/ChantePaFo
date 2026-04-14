@@ -111,3 +111,69 @@ async def test_get_track(deezer):
         mock_get.return_value = mock_resp
         track = await deezer.get_track(3135556)
         assert track["title"] == "Harder, Better, Faster, Stronger"
+
+
+async def test_get_random_tracks_does_not_use_charts_for_specific_genres(deezer):
+    genre_tracks = [
+        {
+            "id": 100 + i,
+            "title": f"Rock Hit {i}",
+            "artist": "Rock Band",
+            "album": "Rock Album",
+            "cover_url": "",
+            "preview_url": "https://preview.test",
+            "duration": 200,
+            "release_date": "1985-06-01",
+            "rank": 800000,
+        }
+        for i in range(5)
+    ]
+    with (
+        patch.object(
+            deezer, "get_tracks_for_genre", new_callable=AsyncMock, return_value=genre_tracks
+        ),
+        patch.object(deezer, "get_chart_tracks", new_callable=AsyncMock) as mock_charts,
+    ):
+        tracks = await deezer.get_random_tracks({"rock": 1, "annees80": 1}, count=5)
+        assert len(tracks) >= 1
+        mock_charts.assert_not_called()
+
+
+async def test_get_random_tracks_uses_charts_when_all_is_selected(deezer):
+    genre_tracks = [
+        {
+            "id": 200,
+            "title": "Any Hit",
+            "artist": "X",
+            "album": "Y",
+            "cover_url": "",
+            "preview_url": "https://preview.test",
+            "duration": 200,
+            "release_date": "2020-01-01",
+            "rank": 900000,
+        }
+    ]
+    chart_tracks = [
+        {
+            "id": 300 + i,
+            "title": f"Global Hit {i}",
+            "artist": "Chart Artist",
+            "album": "Chart Album",
+            "cover_url": "",
+            "preview_url": "https://preview.test",
+            "duration": 200,
+            "release_date": "2024-01-01",
+            "rank": 950000,
+        }
+        for i in range(3)
+    ]
+    with (
+        patch.object(
+            deezer, "get_tracks_for_genre", new_callable=AsyncMock, return_value=genre_tracks
+        ),
+        patch.object(
+            deezer, "get_chart_tracks", new_callable=AsyncMock, return_value=chart_tracks
+        ) as mock_charts,
+    ):
+        await deezer.get_random_tracks({"all": 1}, count=10)
+        mock_charts.assert_called_once()

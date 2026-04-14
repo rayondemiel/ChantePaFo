@@ -290,7 +290,9 @@ class DeezerClient:
 
             all_tracks.extend(filtered)
 
-        if needs_charts:
+        # Chart booster only applies when "all" is requested — otherwise it
+        # pollutes genre-specific pools with off-topic global hits.
+        if needs_charts and "all" in genre_config:
             chart_tracks = await self.get_chart_tracks(limit=100)
             all_tracks.extend(chart_tracks)
 
