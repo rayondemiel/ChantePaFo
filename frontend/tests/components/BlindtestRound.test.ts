@@ -21,6 +21,19 @@ vi.mock('../../src/composables/useSocket', () => ({
   useSocket: () => socketMock,
 }))
 
+const attachMusicMock: ReturnType<typeof vi.fn<(el: HTMLAudioElement) => () => void>> = vi.fn(
+  () => () => {},
+)
+vi.mock('../../src/composables/useVolume', () => ({
+  useVolume: () => ({
+    music: { value: 0.8 },
+    musicMuted: { value: false },
+    setMusic: vi.fn(),
+    toggleMusicMute: vi.fn(),
+    attachMusic: attachMusicMock,
+  }),
+}))
+
 async function setup(state: Partial<GameState>, opts: { isHost?: boolean; userId?: string } = {}) {
   const pinia = createPinia()
   setActivePinia(pinia)
@@ -72,6 +85,8 @@ describe('BlindtestRound', () => {
     Object.values(socketMock).forEach((m) => {
       if (typeof m === 'function' && 'mockReset' in m) m.mockReset()
     })
+    attachMusicMock.mockClear()
+    attachMusicMock.mockImplementation(() => () => {})
   })
 
   it('renders Countdown component in countdown phase', async () => {
@@ -266,5 +281,28 @@ describe('BlindtestRound', () => {
   it('does not show back-to-lobby button for non-host in finished phase', async () => {
     const { wrapper } = await setup({ phase: 'finished' }, { isHost: false })
     expect(wrapper.find('[data-test="back-lobby"]').exists()).toBe(false)
+  })
+
+  it('attaches the audio element to useVolume when entering playing phase', async () => {
+    const { wrapper } = await setup({
+      phase: 'playing',
+      track: { preview_url: 'http://x/y.mp3', genre: 'pop' },
+    })
+    await flushPromises()
+    expect(attachMusicMock).toHaveBeenCalled()
+    const arg = attachMusicMock.mock.calls[0]?.[0]
+    expect(arg).toBe(wrapper.find('audio').element)
+  })
+
+  it('detaches the music binding on unmount', async () => {
+    const detach = vi.fn()
+    attachMusicMock.mockImplementation(() => detach)
+    const { wrapper } = await setup({
+      phase: 'playing',
+      track: { preview_url: 'http://x/y.mp3', genre: 'pop' },
+    })
+    await flushPromises()
+    wrapper.unmount()
+    expect(detach).toHaveBeenCalled()
   })
 })

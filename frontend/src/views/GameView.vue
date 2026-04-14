@@ -5,11 +5,14 @@
     </div>
     <template v-else>
       <div class="zone-info">
-        <span class="text-display">{{ phaseName }}</span>
-        <span v-if="gameStore.state.current_round !== undefined" class="round-info">
-          Round {{ (gameStore.state.current_round as number) + 1 }} /
-          {{ gameStore.state.total_rounds }}
-        </span>
+        <div class="zone-info-main">
+          <span class="text-display">{{ phaseName }}</span>
+          <span v-if="gameStore.state.current_round !== undefined" class="round-info">
+            Round {{ (gameStore.state.current_round as number) + 1 }} /
+            {{ gameStore.state.total_rounds }}
+          </span>
+        </div>
+        <VolumeControl class="zone-info-volume" />
       </div>
 
       <div class="zone-content">
@@ -38,6 +41,7 @@ import { useRoomStore } from '../stores/room'
 import { useAmbianceStore } from '../stores/ambiance'
 import { useSocket } from '../composables/useSocket'
 import BlindtestRound from '../components/BlindtestRound.vue'
+import VolumeControl from '../components/VolumeControl.vue'
 import type { GameState, AmbianceConfig, Award } from '../types'
 
 defineProps<{ code: string }>()
@@ -113,6 +117,22 @@ onUnmounted(() => {
   justify-content: center;
   min-height: 50vh;
   color: var(--color-text-muted);
+}
+.zone-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-md);
+}
+.zone-info-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+.zone-info-volume {
+  flex-shrink: 0;
 }
 .round-info {
   color: var(--color-text-muted);

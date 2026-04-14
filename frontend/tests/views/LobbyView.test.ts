@@ -138,6 +138,11 @@ describe('LobbyView', () => {
     expect(socketMock.emit).toHaveBeenCalledWith('join_room', { code: 'FUNK4242' })
   })
 
+  it('renders the VolumeControl in the header', async () => {
+    ;({ wrapper, router } = await mountLobby())
+    expect(wrapper!.find('.volume-control').exists()).toBe(true)
+  })
+
   it('renders the marquee code, host name and player count', async () => {
     ;({ wrapper, router } = await mountLobby())
     expect(wrapper!.text()).toContain('FUNK4242')

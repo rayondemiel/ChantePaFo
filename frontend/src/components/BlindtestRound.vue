@@ -67,12 +67,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onMounted, onBeforeUnmount, ref, watch, watchEffect } from 'vue'
 import { useRouter } from 'vue-router'
 import AnswerInput from './AnswerInput.vue'
 import Countdown from './Countdown.vue'
 import ScoreBoard from './ScoreBoard.vue'
 import { useSocket } from '../composables/useSocket'
+import { useVolume } from '../composables/useVolume'
 import { useAuthStore } from '../stores/auth'
 import { useRoomStore } from '../stores/room'
 import { useGameStore } from '../stores/game'
@@ -80,11 +81,23 @@ import type { FuzzyResult } from '../types'
 
 const router = useRouter()
 const { emit: socketEmit, on: socketOn, off: socketOff } = useSocket()
+const { attachMusic } = useVolume()
 const auth = useAuthStore()
 const roomStore = useRoomStore()
 const gameStore = useGameStore()
 
 const answerRef = ref<InstanceType<typeof AnswerInput> | null>(null)
+const audioRef = ref<HTMLAudioElement | null>(null)
+let detachMusic: (() => void) | null = null
+
+watchEffect(() => {
+  if (audioRef.value && !detachMusic) {
+    detachMusic = attachMusic(audioRef.value)
+  } else if (!audioRef.value && detachMusic) {
+    detachMusic()
+    detachMusic = null
+  }
+})
 
 const state = computed(() => gameStore.state)
 const phase = computed<string>(() => gameStore.state?.phase ?? '')
@@ -175,6 +188,8 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   socketOff('game_event_result', onEventResult)
+  detachMusic?.()
+  detachMusic = null
 })
 </script>
 

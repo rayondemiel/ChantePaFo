@@ -37,6 +37,7 @@
       </div>
 
       <nav class="header-chips" aria-label="Actions room">
+        <VolumeControl class="header-volume" />
         <button class="chip chip-accent" @click="copyCode">
           <span class="chip-glyph">⎘</span> Copier
         </button>
@@ -279,6 +280,7 @@ import { useBreakpoint } from '../composables/useBreakpoint'
 import PlayerList from '../components/PlayerList.vue'
 import GenreSelector from '../components/GenreSelector.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
+import VolumeControl from '../components/VolumeControl.vue'
 import { getGenreLabel, getGenreColor } from '../lib/genres'
 import type { RoomState, GameState, Player } from '../types'
 
