@@ -12,7 +12,7 @@
             {{ gameStore.state.total_rounds }}
           </span>
         </div>
-        <VolumeControl class="zone-info-volume" />
+        <VolumeControl v-if="gameStore.state.phase !== 'countdown'" class="zone-info-volume" />
       </div>
 
       <div class="zone-content">

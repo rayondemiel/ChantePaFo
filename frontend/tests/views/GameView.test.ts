@@ -86,7 +86,7 @@ describe('GameView', () => {
     expect(events).toContain('ambiance_update')
   })
 
-  it('renders the VolumeControl inside the zone-info header', async () => {
+  it('hides the VolumeControl during the countdown phase', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)
     const auth = useAuthStore()
@@ -94,6 +94,31 @@ describe('GameView', () => {
     const gameStore = useGameStore()
     gameStore.setState({
       phase: 'countdown',
+      current_round: 0,
+      total_rounds: 5,
+      total_scores: {},
+    })
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/:code/play', component: GameView, props: true }],
+    })
+    await router.push('/FUNK4242/play')
+    await router.isReady()
+    const wrapper = mount(GameView, {
+      props: { code: 'FUNK4242' },
+      global: { plugins: [router, pinia] },
+    })
+    expect(wrapper.find('.zone-info .volume-control').exists()).toBe(false)
+  })
+
+  it('shows the VolumeControl in the zone-info header when not in countdown', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const auth = useAuthStore()
+    auth.setAuth({ token: 't', username: 'a', user_id: 'u' })
+    const gameStore = useGameStore()
+    gameStore.setState({
+      phase: 'playing',
       current_round: 0,
       total_rounds: 5,
       total_scores: {},
