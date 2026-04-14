@@ -115,10 +115,28 @@ describe('BlindtestRound', () => {
   it('renders AnswerInput and audio element during playing phase', async () => {
     const { wrapper } = await setup({
       phase: 'playing',
-      track: { preview_url: 'http://x/y.mp3', genre: 'pop', cover_url: 'http://c/o.jpg' },
+      track: { preview_url: 'http://x/y.mp3', genre: 'pop' },
     })
     expect(wrapper.find('input.input-answer').exists()).toBe(true)
     expect(wrapper.find('audio').exists()).toBe(true)
+  })
+
+  it('renders the mystery orb during playing phase without leaking cover art', async () => {
+    const { wrapper } = await setup({
+      phase: 'playing',
+      track: { preview_url: 'http://x/y.mp3', genre: 'pop' },
+    })
+    expect(wrapper.find('.mystery-orb').exists()).toBe(true)
+    expect(wrapper.find('img').exists()).toBe(false)
+  })
+
+  it('AnswerInput is enabled during playing phase', async () => {
+    const { wrapper } = await setup({
+      phase: 'playing',
+      track: { preview_url: 'http://x/y.mp3', genre: 'pop' },
+    })
+    const input = wrapper.get('input.input-answer')
+    expect((input.element as HTMLInputElement).disabled).toBe(false)
   })
 
   it('renders ScoreBoard during playing phase with compact styling', async () => {
@@ -203,65 +221,216 @@ describe('BlindtestRound', () => {
     expect(wrapper.text()).not.toContain('Parfait')
   })
 
-  it('shows correct_title and correct_artist during round_result phase', async () => {
+  it('locally reveals the song on bonus match during playing phase', async () => {
     const { wrapper } = await setup({
-      phase: 'round_result',
+      phase: 'playing',
+      track: { preview_url: 'http://x/y.mp3', genre: 'pop' },
+    })
+    const handlerCall = socketMock.on.mock.calls.find((c) => c[0] === 'game_event_result')
+    const handler = handlerCall![1] as (d: unknown) => void
+    handler({
+      player_id: 'u1',
+      title_match: true,
+      artist_match: true,
+      bonus: true,
+      distance: 0,
+      correct_title: 'Thriller',
+      correct_artist: 'Michael Jackson',
+      cover_url: 'http://c/o.jpg',
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.mystery-orb').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Thriller')
+    expect(wrapper.text()).toContain('Michael Jackson')
+    const img = wrapper.find('img.reveal-cover')
+    expect(img.exists()).toBe(true)
+    expect(img.attributes('src')).toBe('http://c/o.jpg')
+    const input = wrapper.get('input.input-answer')
+    expect((input.element as HTMLInputElement).disabled).toBe(true)
+  })
+
+  it('does not locally reveal on a partial (non-bonus) match', async () => {
+    const { wrapper } = await setup({
+      phase: 'playing',
+      track: { preview_url: 'http://x/y.mp3', genre: 'pop' },
+    })
+    const handlerCall = socketMock.on.mock.calls.find((c) => c[0] === 'game_event_result')
+    const handler = handlerCall![1] as (d: unknown) => void
+    handler({
+      player_id: 'u1',
+      title_match: true,
+      artist_match: false,
+      bonus: false,
+      distance: 0,
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.mystery-orb').exists()).toBe(true)
+    expect(wrapper.find('img.reveal-cover').exists()).toBe(false)
+    const input = wrapper.get('input.input-answer')
+    expect((input.element as HTMLInputElement).disabled).toBe(false)
+  })
+
+  it('ignores local reveal when bonus targets another player', async () => {
+    const { wrapper } = await setup({
+      phase: 'playing',
+      track: { preview_url: 'http://x/y.mp3', genre: 'pop' },
+    })
+    const handlerCall = socketMock.on.mock.calls.find((c) => c[0] === 'game_event_result')
+    const handler = handlerCall![1] as (d: unknown) => void
+    handler({
+      player_id: 'u2',
+      title_match: true,
+      artist_match: true,
+      bonus: true,
+      distance: 0,
+      correct_title: 'Thriller',
+      correct_artist: 'Michael Jackson',
+      cover_url: 'http://c/o.jpg',
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.mystery-orb').exists()).toBe(true)
+    expect(wrapper.find('img.reveal-cover').exists()).toBe(false)
+  })
+
+  it('resets local reveal state on the next round', async () => {
+    const { wrapper, game } = await setup({
+      phase: 'playing',
+      current_round: 0,
+      track: { preview_url: 'http://x/y.mp3', genre: 'pop' },
+    })
+    const handlerCall = socketMock.on.mock.calls.find((c) => c[0] === 'game_event_result')
+    const handler = handlerCall![1] as (d: unknown) => void
+    handler({
+      player_id: 'u1',
+      title_match: true,
+      artist_match: true,
+      bonus: true,
+      distance: 0,
+      correct_title: 'Thriller',
+      correct_artist: 'Michael Jackson',
+      cover_url: 'http://c/o.jpg',
+    })
+    await flushPromises()
+    expect(wrapper.find('img.reveal-cover').exists()).toBe(true)
+
+    game.setState({
+      phase: 'round_pause',
+      current_round: 0,
+      total_rounds: 5,
+      total_scores: { u1: 0, u2: 0 },
+    })
+    await flushPromises()
+
+    game.setState({
+      phase: 'playing',
+      current_round: 1,
+      total_rounds: 5,
+      total_scores: { u1: 0, u2: 0 },
+      track: { preview_url: 'http://x/y2.mp3', genre: 'pop' },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.mystery-orb').exists()).toBe(true)
+    expect(wrapper.find('img.reveal-cover').exists()).toBe(false)
+    const input = wrapper.get('input.input-answer')
+    expect((input.element as HTMLInputElement).disabled).toBe(false)
+  })
+
+  it('exposes cover, title and artist during playing_reveal phase', async () => {
+    const { wrapper } = await setup({
+      phase: 'playing_reveal',
+      track: { preview_url: 'http://x/y.mp3', genre: 'pop', cover_url: 'http://c/o.jpg' },
       round_results: {
         correct_title: 'Thriller',
         correct_artist: 'Michael Jackson',
         cover_url: 'http://c/o.jpg',
       },
-      round_scores: { u1: 10, u2: 0 },
     })
     expect(wrapper.text()).toContain('Thriller')
     expect(wrapper.text()).toContain('Michael Jackson')
+    const img = wrapper.find('img.reveal-cover')
+    expect(img.exists()).toBe(true)
+    expect(img.attributes('src')).toBe('http://c/o.jpg')
   })
 
-  it('shows next round button only to the host in round_result phase', async () => {
-    const { wrapper } = await setup(
-      {
-        phase: 'round_result',
-        round_results: {
-          correct_title: 'T',
-          correct_artist: 'A',
-        },
+  it('disables AnswerInput during playing_reveal phase', async () => {
+    const { wrapper } = await setup({
+      phase: 'playing_reveal',
+      track: { preview_url: 'http://x/y.mp3', genre: 'pop', cover_url: 'http://c/o.jpg' },
+      round_results: {
+        correct_title: 'Thriller',
+        correct_artist: 'Michael Jackson',
+        cover_url: 'http://c/o.jpg',
       },
-      { isHost: true },
-    )
-    const btn = wrapper.find('[data-test="next-round"]')
-    expect(btn.exists()).toBe(true)
+    })
+    const input = wrapper.get('input.input-answer')
+    expect((input.element as HTMLInputElement).disabled).toBe(true)
   })
 
-  it('hides next round button for non-host', async () => {
-    const { wrapper } = await setup(
-      {
-        phase: 'round_result',
-        round_results: {
-          correct_title: 'T',
-          correct_artist: 'A',
-        },
+  it('keeps the audio element mounted across playing → playing_reveal transition', async () => {
+    const { wrapper, game } = await setup({
+      phase: 'playing',
+      track: { preview_url: 'http://x/y.mp3', genre: 'pop' },
+    })
+    await flushPromises()
+    const audioBefore = wrapper.find('audio').element
+    expect(audioBefore).toBeTruthy()
+
+    game.setState({
+      phase: 'playing_reveal',
+      current_round: 0,
+      total_rounds: 5,
+      total_scores: { u1: 0, u2: 0 },
+      track: { preview_url: 'http://x/y.mp3', genre: 'pop', cover_url: 'http://c/o.jpg' },
+      round_results: {
+        correct_title: 'Thriller',
+        correct_artist: 'Michael Jackson',
+        cover_url: 'http://c/o.jpg',
       },
-      { isHost: false },
-    )
-    expect(wrapper.find('[data-test="next-round"]').exists()).toBe(false)
+    })
+    await flushPromises()
+
+    const audioAfter = wrapper.find('audio').element
+    expect(audioAfter).toBe(audioBefore)
   })
 
-  it('host click on next-round emits game_event next_round', async () => {
-    const { wrapper } = await setup(
-      {
-        phase: 'round_result',
+  it('renders the pause stage during round_pause phase', async () => {
+    const { wrapper } = await setup({ phase: 'round_pause' })
+    expect(wrapper.find('.pause-stage').exists()).toBe(true)
+    expect(wrapper.find('input.input-answer').exists()).toBe(false)
+  })
+
+  it('pauses the audio element when entering round_pause from playing_reveal', async () => {
+    const pauseSpy = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
+    try {
+      const { wrapper, game } = await setup({
+        phase: 'playing_reveal',
+        track: { preview_url: 'http://x/y.mp3', genre: 'pop', cover_url: 'http://c/o.jpg' },
         round_results: {
-          correct_title: 'T',
-          correct_artist: 'A',
+          correct_title: 'Thriller',
+          correct_artist: 'Michael Jackson',
+          cover_url: 'http://c/o.jpg',
         },
-      },
-      { isHost: true },
-    )
-    await wrapper.get('[data-test="next-round"]').trigger('click')
-    const call = socketMock.emit.mock.calls.find(
-      (c) => c[0] === 'game_event' && (c[1] as { event_type: string }).event_type === 'next_round',
-    )
-    expect(call).toBeDefined()
+      })
+      await flushPromises()
+      expect(wrapper.find('audio').exists()).toBe(true)
+      pauseSpy.mockClear()
+
+      game.setState({
+        phase: 'round_pause',
+        current_round: 0,
+        total_rounds: 5,
+        total_scores: { u1: 0, u2: 0 },
+      })
+      await flushPromises()
+
+      expect(pauseSpy).toHaveBeenCalled()
+    } finally {
+      pauseSpy.mockRestore()
+    }
   })
 
   it('host sees back-to-lobby button in finished phase and it routes to /:code', async () => {

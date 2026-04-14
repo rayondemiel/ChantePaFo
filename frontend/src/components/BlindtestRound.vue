@@ -6,36 +6,45 @@
     </div>
 
     <div class="zone-content">
+      <audio
+        v-if="audioActive"
+        ref="audioRef"
+        class="audio-el"
+        :src="trackUrl"
+        autoplay
+        preload="auto"
+      ></audio>
+
       <template v-if="phase === 'countdown'">
         <p class="hint">Prépare-toi...</p>
         <Countdown :from="3" @done="onCountdownDone" />
       </template>
 
-      <template v-else-if="phase === 'playing'">
-        <div v-if="coverUrl" class="cover-halo">
-          <img class="cover-img" :src="coverUrl" alt="cover" />
+      <div v-else-if="isAnswerPhase" class="answer-stage">
+        <div
+          v-if="phase === 'playing' && !locallyFound"
+          class="mystery-orb"
+          aria-hidden="true"
+        ></div>
+        <div v-else-if="showReveal" class="reveal anim-reveal-slide">
+          <img v-if="revealCoverUrl" class="reveal-cover" :src="revealCoverUrl" alt="" />
+          <h2 class="reveal-title text-display">{{ revealTitle }}</h2>
+          <p class="reveal-artist">{{ revealArtist }}</p>
         </div>
-        <audio ref="audioRef" class="audio-el" :src="trackUrl" autoplay preload="auto"></audio>
-        <p class="hint">Tape ce que tu entends</p>
-        <AnswerInput ref="answerRef" @submit="onAnswer" />
+        <p v-if="phase === 'playing' && !locallyFound" class="hint">Tape ce que tu entends</p>
+        <AnswerInput
+          ref="answerRef"
+          :disabled="phase === 'playing_reveal' || locallyFound"
+          @submit="onAnswer"
+        />
         <div class="scoreboard-compact">
           <ScoreBoard :scores="totalScores" :players="playerMap" />
         </div>
-      </template>
+      </div>
 
-      <template v-else-if="phase === 'round_result'">
-        <div v-if="roundResults" class="reveal anim-reveal-slide">
-          <img
-            v-if="roundResults.cover_url"
-            class="reveal-cover"
-            :src="roundResults.cover_url"
-            alt="cover"
-          />
-          <h2 class="reveal-title text-display">{{ roundResults.correct_title }}</h2>
-          <p class="reveal-artist">{{ roundResults.correct_artist }}</p>
-        </div>
-        <ScoreBoard :scores="totalScores" :players="playerMap" />
-      </template>
+      <div v-else-if="phase === 'round_pause'" class="pause-stage">
+        <div class="pause-indicator" aria-hidden="true"></div>
+      </div>
 
       <template v-else-if="phase === 'finished'">
         <h2 class="finished-title text-display text-gradient">Terminé !</h2>
@@ -44,15 +53,6 @@
     </div>
 
     <div class="zone-actions">
-      <button
-        v-if="phase === 'round_result' && isHost"
-        type="button"
-        class="btn btn-primary"
-        data-test="next-round"
-        @click="onNextRound"
-      >
-        Manche suivante
-      </button>
       <button
         v-if="phase === 'finished' && isHost"
         type="button"
@@ -88,6 +88,12 @@ const gameStore = useGameStore()
 
 const answerRef = ref<InstanceType<typeof AnswerInput> | null>(null)
 const audioRef = ref<HTMLAudioElement | null>(null)
+const locallyFound = ref(false)
+const localAnswer = ref<{
+  correct_title: string
+  correct_artist: string
+  cover_url: string
+} | null>(null)
 let detachMusic: (() => void) | null = null
 
 watchEffect(() => {
@@ -106,9 +112,27 @@ const totalRounds = computed<number>(() => gameStore.state?.total_rounds ?? 0)
 const totalScores = computed<Record<string, number>>(() => gameStore.state?.total_scores ?? {})
 
 const trackUrl = computed<string>(() => gameStore.state?.track?.preview_url ?? '')
-const coverUrl = computed<string | undefined>(() => gameStore.state?.track?.cover_url)
 
 const roundResults = computed(() => gameStore.state?.round_results)
+
+const showReveal = computed(() => phase.value === 'playing_reveal' || locallyFound.value)
+const revealCoverUrl = computed(() =>
+  locallyFound.value ? (localAnswer.value?.cover_url ?? '') : (roundResults.value?.cover_url ?? ''),
+)
+const revealTitle = computed(() =>
+  locallyFound.value
+    ? (localAnswer.value?.correct_title ?? '')
+    : (roundResults.value?.correct_title ?? ''),
+)
+const revealArtist = computed(() =>
+  locallyFound.value
+    ? (localAnswer.value?.correct_artist ?? '')
+    : (roundResults.value?.correct_artist ?? ''),
+)
+
+const isAnswerPhase = computed(() => phase.value === 'playing' || phase.value === 'playing_reveal')
+
+const audioActive = computed(() => !!trackUrl.value && isAnswerPhase.value)
 
 const playerMap = computed<Record<string, { name: string }>>(() => {
   const players = roomStore.room?.players ?? []
@@ -125,7 +149,8 @@ const phaseLabel = computed(() => {
   const map: Record<string, string> = {
     countdown: 'Prêt ?',
     playing: 'À toi de jouer',
-    round_result: 'Résultats',
+    playing_reveal: 'Révélation',
+    round_pause: '...',
     finished: 'Terminé',
   }
   return map[phase.value] ?? phase.value
@@ -135,8 +160,15 @@ let playStart = 0
 
 watch(
   phase,
-  (p) => {
-    if (p === 'playing') playStart = Date.now()
+  (newPhase, oldPhase) => {
+    if (newPhase === 'playing') playStart = Date.now()
+    if (newPhase === 'playing' && oldPhase !== 'playing') {
+      locallyFound.value = false
+      localAnswer.value = null
+    }
+    if (newPhase === 'round_pause' && oldPhase === 'playing_reveal' && audioRef.value) {
+      audioRef.value.pause()
+    }
   },
   { immediate: true },
 )
@@ -159,20 +191,17 @@ function onAnswer(text: string) {
   })
 }
 
-function onNextRound() {
-  socketEmit('game_event', {
-    code: roomCode.value,
-    event_type: 'next_round',
-    payload: {},
-  })
-}
-
 function onBackToLobby() {
   void router.push(`/${roomCode.value}`)
 }
 
 function onEventResult(data: unknown) {
-  const d = data as FuzzyResult & { player_id?: string }
+  const d = data as FuzzyResult & {
+    player_id?: string
+    correct_title?: string
+    correct_artist?: string
+    cover_url?: string
+  }
   if (d.player_id !== auth.userId) return
   answerRef.value?.setResult({
     title_match: d.title_match,
@@ -180,6 +209,14 @@ function onEventResult(data: unknown) {
     bonus: d.bonus,
     distance: d.distance,
   })
+  if (d.bonus && d.correct_title && d.correct_artist) {
+    locallyFound.value = true
+    localAnswer.value = {
+      correct_title: d.correct_title,
+      correct_artist: d.correct_artist,
+      cover_url: d.cover_url ?? '',
+    }
+  }
 }
 
 onMounted(() => {
@@ -240,6 +277,14 @@ onBeforeUnmount(() => {
   min-height: 60vh;
 }
 
+.answer-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-lg);
+  width: 100%;
+}
+
 .hint {
   color: var(--color-text-muted);
   font-size: var(--text-sm);
@@ -247,42 +292,31 @@ onBeforeUnmount(() => {
   text-transform: uppercase;
 }
 
-.cover-halo {
+.mystery-orb {
   position: relative;
   width: 180px;
   height: 180px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.cover-halo::before {
-  content: '';
-  position: absolute;
-  inset: -12px;
   border-radius: 50%;
-  background: conic-gradient(
-    from 0deg,
-    var(--color-primary),
-    var(--color-secondary),
-    var(--color-accent),
-    var(--color-primary)
-  );
-  filter: blur(18px);
-  opacity: 0.55;
-  z-index: 0;
+  background:
+    radial-gradient(
+      circle at 35% 35%,
+      rgba(var(--color-primary-rgb), 0.55),
+      rgba(var(--color-secondary-rgb), 0.35) 45%,
+      rgba(var(--color-accent-rgb), 0.15) 75%,
+      transparent 100%
+    ),
+    conic-gradient(
+      from 0deg,
+      var(--color-primary),
+      var(--color-secondary),
+      var(--color-accent),
+      var(--color-primary)
+    );
+  filter: blur(2px);
+  box-shadow:
+    0 0 60px rgba(var(--color-primary-rgb), 0.45),
+    0 0 120px rgba(var(--color-accent-rgb), 0.25);
   animation: cover-spin 8s linear infinite;
-}
-
-.cover-img {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  border-radius: var(--radius-lg);
-  border: 2px solid rgba(var(--color-white-rgb), 0.1);
-  z-index: 1;
-  box-shadow: 0 10px 30px rgba(var(--color-bg-rgb), 0.6);
 }
 
 .audio-el {
@@ -342,6 +376,27 @@ onBeforeUnmount(() => {
   letter-spacing: 1px;
 }
 
+.pause-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 220px;
+}
+
+.pause-indicator {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(var(--color-accent-rgb), 0.3),
+    rgba(var(--color-primary-rgb), 0.1) 60%,
+    transparent 100%
+  );
+  box-shadow: 0 0 40px rgba(var(--color-accent-rgb), 0.35);
+  animation: pulse-breath 1.2s ease-in-out infinite;
+}
+
 .finished-title {
   font-size: var(--text-hero);
   text-align: center;
@@ -368,8 +423,23 @@ onBeforeUnmount(() => {
   }
 }
 
+@keyframes pulse-breath {
+  0%,
+  100% {
+    transform: scale(0.9);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 1;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .cover-halo::before {
+    animation: none;
+  }
+  .pause-indicator {
     animation: none;
   }
 }
@@ -379,7 +449,7 @@ onBeforeUnmount(() => {
     max-width: 640px;
     margin: 0 auto;
   }
-  .cover-halo {
+  .mystery-orb {
     width: 220px;
     height: 220px;
   }
