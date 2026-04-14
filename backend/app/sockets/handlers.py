@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any, cast
 
 import socketio
@@ -9,6 +10,13 @@ from app.ambiance.engine import get_ambiance_for_genre, get_ambiance_for_moment
 from app.auth.service import decode_token
 from app.database import async_session as session_factory
 from app.database import get_redis
+from app.game.blindtest import (
+    PHASE_FINISHED,
+    PHASE_PLAYING,
+    PHASE_PLAYING_REVEAL,
+    PHASE_ROUND_PAUSE,
+    BlindtestMode,
+)
 from app.game.engine import GameSession, registry
 from app.logging_config import get_logger
 from app.main import sio
@@ -56,6 +64,98 @@ def _room_sids_key(code: str) -> str:
 # Lives in the process — acceptable for single-worker MVP.
 # Multi-worker deployments would require a shared session store (e.g. Redis).
 _active_sessions: dict[str, GameSession] = {}
+
+# Per-room asyncio tasks that drive the blindtest round timeline (playing →
+# playing_reveal → round_pause → next round). Stored so they can be cancelled
+# when the room is cleaned up or a new game starts.
+_round_timers: dict[str, asyncio.Task[None]] = {}
+
+# Reveal lasts 5s (music keeps playing), then a 2s silent pause before the
+# next round. Tweak these constants if the UX needs adjusting.
+_REVEAL_DURATION_SECONDS = 5
+_ROUND_PAUSE_DURATION_SECONDS = 2
+
+
+def _cancel_round_timer(code: str) -> None:
+    task = _round_timers.pop(code, None)
+    if task is not None and not task.done():
+        task.cancel()
+
+
+async def _finish_blindtest_game(code: str) -> None:
+    """End the blindtest game, emit game_ended, and reset room status to lobby."""
+    existing = _active_sessions.pop(code, None)
+    if existing is None:
+        return  # another coroutine already handled the finish
+    final = await existing.end()
+    await sio.emit("game_ended", final, room=code)
+    redis = get_redis()
+    svc = RoomService(redis)
+    await svc.set_status(code, "lobby")
+    await sio.emit("ambiance_update", get_ambiance_for_moment("lobby"), room=code)
+    logger.info("game finished room=%s", code)
+
+
+async def _run_round_timeline(code: str, game_session: GameSession) -> None:
+    """Drive the blindtest round timeline via asyncio sleeps.
+
+    Loops through: playing → playing_reveal → round_pause → playing (next).
+    Bails out on phase mismatch (defensive), and triggers game-end cleanup on
+    transition to finished.
+    """
+    mode = game_session.mode
+    if not isinstance(mode, BlindtestMode):
+        return
+
+    try:
+        extract_duration = int(mode.state.get("extract_duration", 20))
+        playing_duration = max(extract_duration - _REVEAL_DURATION_SECONDS, 0)
+
+        while True:
+            # Phase: playing — wait for the answer window to close.
+            await asyncio.sleep(playing_duration)
+            if mode.state.get("phase") != PHASE_PLAYING:
+                return
+            mode.advance_to_reveal()
+            await sio.emit("game_state", game_session.get_state(), room=code)
+
+            # Phase: playing_reveal — music continues, answers locked.
+            await asyncio.sleep(_REVEAL_DURATION_SECONDS)
+            if mode.state.get("phase") != PHASE_PLAYING_REVEAL:
+                return
+            mode.advance_to_pause()
+            await sio.emit("game_state", game_session.get_state(), room=code)
+
+            # Phase: round_pause — frontend stops audio for a brief silence.
+            await asyncio.sleep(_ROUND_PAUSE_DURATION_SECONDS)
+            if mode.state.get("phase") != PHASE_ROUND_PAUSE:
+                return
+            mode.advance_to_next_round()
+            await sio.emit("game_state", game_session.get_state(), room=code)
+
+            if mode.state.get("phase") == PHASE_FINISHED:
+                await _finish_blindtest_game(code)
+                return
+            # Otherwise we're back in PHASE_PLAYING for the next round; loop.
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("round timeline crashed for room=%s: %s", code, exc)
+
+
+def _spawn_round_timer(code: str, game_session: GameSession) -> None:
+    """Spawn (or replace) the round timeline task for a room."""
+    _cancel_round_timer(code)
+    task = asyncio.create_task(_run_round_timeline(code, game_session))
+    _round_timers[code] = task
+
+    def _cleanup(_t: asyncio.Task[None]) -> None:
+        # Only drop ourselves if we're still the registered timer (avoid
+        # racing with a newer timer that replaced us).
+        if _round_timers.get(code) is _t:
+            _round_timers.pop(code, None)
+
+    task.add_done_callback(_cleanup)
 
 
 async def _handle_connect(sid: str, environ: dict[str, object], auth: object) -> None:
@@ -117,6 +217,7 @@ async def _handle_disconnect(sid: str) -> None:
             room_after = await svc.get_room(room_code)
             if not room_after or not room_after.get("players"):
                 del _active_sessions[room_code]
+                _cancel_round_timer(room_code)
                 logger.info("game session cleaned up (empty room) room=%s", room_code)
 
 
@@ -237,6 +338,8 @@ async def _handle_start_game(sid: str, data: object) -> None:
         return
 
     player_count = len(room["players"])
+    # Defensive: cancel any leftover timer from a previous game in this room.
+    _cancel_round_timer(payload.code)
     game_session = GameSession(mode)
     _active_sessions[payload.code] = game_session
 
@@ -281,22 +384,37 @@ async def _handle_game_event(sid: str, data: object) -> None:
 
     result = await game_session.handle_event(payload.event_type, user_id, payload.payload)
     if result is not None:
-        await sio.emit("game_event_result", result, room=payload.code)
+        if (
+            payload.event_type == "answer"
+            and isinstance(game_session.mode, BlindtestMode)
+            and result.get("bonus") is True
+        ):
+            mode = game_session.mode
+            round_idx = int(mode.state.get("current_round", 0))
+            if 0 <= round_idx < len(mode.tracks):
+                track = mode.tracks[round_idx]
+                result["correct_title"] = track["title"]
+                result["correct_artist"] = track["artist"]
+                result["cover_url"] = track.get("cover_url", "")
+        await sio.emit("game_event_result", result, to=sid)
 
     state = game_session.get_state()
     await sio.emit("game_state", state, room=payload.code)
 
-    if state.get("phase") == "finished":
-        session = _active_sessions.pop(payload.code, None)
-        if session is None:
-            return  # another coroutine already handled the finish
-        final = await session.end()
-        await sio.emit("game_ended", final, room=payload.code)
-        redis = get_redis()
-        svc = RoomService(redis)
-        await svc.set_status(payload.code, "lobby")
-        await sio.emit("ambiance_update", get_ambiance_for_moment("lobby"), room=payload.code)
-        logger.info("game finished room=%s", payload.code)
+    # Blindtest auto-advance: as soon as we enter the "playing" phase (after
+    # countdown_done), spawn the timeline task that drives reveal/pause/next.
+    if (
+        payload.event_type == "countdown_done"
+        and state.get("phase") == PHASE_PLAYING
+        and isinstance(game_session.mode, BlindtestMode)
+    ):
+        _spawn_round_timer(payload.code, game_session)
+
+    # Defensive: legacy finish path (other game modes still drive game-end via
+    # handle_event). Blindtest finishes via the timeline coroutine instead.
+    if state.get("phase") == PHASE_FINISHED:
+        _cancel_round_timer(payload.code)
+        await _finish_blindtest_game(payload.code)
 
 
 async def _handle_request_ambiance(sid: str, data: object) -> None:

@@ -5,6 +5,7 @@ sio methods (emit, save_session, get_session, enter_room, rooms) and patched
 module-level imports (session_factory, get_redis).
 """
 
+import asyncio
 import os
 from unittest.mock import AsyncMock, patch
 
@@ -151,9 +152,13 @@ async def sio_env(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def clear_active_sessions():
-    """Ensure _active_sessions is empty before and after each test."""
+    """Ensure _active_sessions and _round_timers are empty between tests."""
+    for _code in list(app.sockets.handlers._round_timers):
+        app.sockets.handlers._cancel_round_timer(_code)
     app.sockets.handlers._active_sessions.clear()
     yield
+    for _code in list(app.sockets.handlers._round_timers):
+        app.sockets.handlers._cancel_round_timer(_code)
     app.sockets.handlers._active_sessions.clear()
 
 
@@ -772,6 +777,9 @@ async def test_game_event_blindtest_answer(sio_env):
     await sio_env["handlers"]["game_event"](
         "sid-1", {"code": code, "event_type": "countdown_done", "payload": {}}
     )
+    # countdown_done spawns the round timeline task — cancel it here so that
+    # the asyncio.sleep inside doesn't race with the rest of the test.
+    app.sockets.handlers._cancel_round_timer(code)
 
     sio_env["emitted"].clear()
     await sio_env["handlers"]["game_event"](
@@ -786,6 +794,99 @@ async def test_game_event_blindtest_answer(sio_env):
 
     state_events = [e for e in sio_env["emitted"] if e["event"] == "game_state"]
     assert len(state_events) == 1
+
+
+async def test_game_event_result_sent_to_sid_not_room(sio_env):
+    """game_event_result must be delivered direct-to-sid, never broadcast."""
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+    await _start_game_mocked(sio_env, code)
+
+    await sio_env["handlers"]["game_event"](
+        "sid-1", {"code": code, "event_type": "countdown_done", "payload": {}}
+    )
+    app.sockets.handlers._cancel_round_timer(code)
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["game_event"](
+        "sid-1",
+        {"code": code, "event_type": "answer", "payload": {"text": "Song0", "time_ms": 1500}},
+    )
+
+    result_events = [e for e in sio_env["emitted"] if e["event"] == "game_event_result"]
+    assert len(result_events) == 1
+    assert result_events[0].get("to") == "sid-1"
+    assert "room" not in result_events[0]
+
+
+async def test_game_event_result_enriches_on_bonus_match(sio_env):
+    """On a full bonus match, the result payload must include canonical fields."""
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+    await _start_game_mocked(sio_env, code)
+
+    # Replace track cover_url so we can assert it propagates.
+    game_session = app.sockets.handlers._active_sessions[code]
+    assert isinstance(game_session.mode, app.sockets.handlers.BlindtestMode)
+    game_session.mode.tracks[0]["cover_url"] = "https://cdn/song0.jpg"
+
+    await sio_env["handlers"]["game_event"](
+        "sid-1", {"code": code, "event_type": "countdown_done", "payload": {}}
+    )
+    app.sockets.handlers._cancel_round_timer(code)
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["game_event"](
+        "sid-1",
+        {
+            "code": code,
+            "event_type": "answer",
+            "payload": {"text": "Song0 Artist0", "time_ms": 1500},
+        },
+    )
+
+    result_events = [e for e in sio_env["emitted"] if e["event"] == "game_event_result"]
+    assert len(result_events) == 1
+    payload = result_events[0]["data"]
+    assert payload["bonus"] is True
+    assert payload["correct_title"] == "Song0"
+    assert payload["correct_artist"] == "Artist0"
+    assert payload["cover_url"] == "https://cdn/song0.jpg"
+    assert result_events[0].get("to") == "sid-1"
+
+
+async def test_game_event_result_not_enriched_on_partial_match(sio_env):
+    """Partial matches (title only or artist only) must NOT leak canonical data."""
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+    await _start_game_mocked(sio_env, code)
+
+    game_session = app.sockets.handlers._active_sessions[code]
+    assert isinstance(game_session.mode, app.sockets.handlers.BlindtestMode)
+    game_session.mode.tracks[0]["cover_url"] = "https://cdn/song0.jpg"
+
+    await sio_env["handlers"]["game_event"](
+        "sid-1", {"code": code, "event_type": "countdown_done", "payload": {}}
+    )
+    app.sockets.handlers._cancel_round_timer(code)
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["game_event"](
+        "sid-1",
+        {
+            "code": code,
+            "event_type": "answer",
+            "payload": {"text": "Song0", "time_ms": 1500},
+        },
+    )
+
+    result_events = [e for e in sio_env["emitted"] if e["event"] == "game_event_result"]
+    assert len(result_events) == 1
+    payload = result_events[0]["data"]
+    assert payload["bonus"] is False
+    assert "correct_title" not in payload
+    assert "correct_artist" not in payload
+    assert "cover_url" not in payload
 
 
 async def test_game_event_unknown_session(sio_env):
@@ -1011,6 +1112,163 @@ async def test_game_event_triggers_game_ended_on_finish(sio_env):
     # Room status should go back to lobby (room_updated or ambiance_update emitted)
     ambiance_events = [e for e in sio_env["emitted"] if e["event"] == "ambiance_update"]
     assert len(ambiance_events) >= 1
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Blindtest auto-advance round timeline (asyncio timer)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+async def test_countdown_done_spawns_round_timer(sio_env, monkeypatch):
+    """countdown_done should spawn a round timeline task for blindtest sessions."""
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+    await _start_game_mocked(sio_env, code)
+
+    # Capture the real asyncio.sleep before patching so the helper doesn't
+    # recursively call its replacement.
+    _real_sleep = asyncio.sleep
+
+    async def _slow_sleep(_delay, *args, **kwargs):
+        await _real_sleep(60)
+
+    monkeypatch.setattr("app.sockets.handlers.asyncio.sleep", _slow_sleep)
+
+    await sio_env["handlers"]["game_event"](
+        "sid-1", {"code": code, "event_type": "countdown_done", "payload": {}}
+    )
+
+    assert code in app.sockets.handlers._round_timers
+    task = app.sockets.handlers._round_timers[code]
+    assert not task.done()
+
+    # Cleanup
+    app.sockets.handlers._cancel_round_timer(code)
+
+
+async def test_round_timeline_cycles_through_phases(sio_env, monkeypatch):
+    """The timeline should drive playing → playing_reveal → round_pause → next round."""
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+    await _start_game_mocked(sio_env, code)
+
+    real_sleep = asyncio.sleep
+
+    async def _instant(_delay, *args, **kwargs):
+        await real_sleep(0)
+
+    monkeypatch.setattr("app.sockets.handlers.asyncio.sleep", _instant)
+
+    await sio_env["handlers"]["game_event"](
+        "sid-1", {"code": code, "event_type": "countdown_done", "payload": {}}
+    )
+
+    # Drain the timeline coroutine: with instant sleeps it will burn through
+    # all rounds and finish on its own. _FAKE_TRACKS has 10 items so this loops
+    # 10 times.
+    timer = app.sockets.handlers._round_timers.get(code)
+    if timer is not None:
+        await timer
+
+    # After the timeline drains, the game should be finished and cleaned up.
+    assert code not in app.sockets.handlers._active_sessions
+
+    ended_events = [e for e in sio_env["emitted"] if e["event"] == "game_ended"]
+    assert len(ended_events) == 1
+
+    # game_state events should have been emitted multiple times for the phase
+    # transitions across the 10 rounds.
+    state_events = [e for e in sio_env["emitted"] if e["event"] == "game_state"]
+    assert len(state_events) >= 10
+
+
+async def test_answer_during_reveal_phase_returns_none(sio_env, monkeypatch):
+    """Submitting an answer during playing_reveal must be ignored (returns None)."""
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+    await _start_game_mocked(sio_env, code)
+
+    _real_sleep = asyncio.sleep
+
+    async def _slow_sleep(_delay, *args, **kwargs):
+        await _real_sleep(60)
+
+    monkeypatch.setattr("app.sockets.handlers.asyncio.sleep", _slow_sleep)
+
+    await sio_env["handlers"]["game_event"](
+        "sid-1", {"code": code, "event_type": "countdown_done", "payload": {}}
+    )
+
+    # Stop the timer and manually transition to playing_reveal.
+    app.sockets.handlers._cancel_round_timer(code)
+    game_session = app.sockets.handlers._active_sessions[code]
+    assert isinstance(game_session.mode, app.sockets.handlers.BlindtestMode)
+    game_session.mode.advance_to_reveal()
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["game_event"](
+        "sid-1",
+        {"code": code, "event_type": "answer", "payload": {"text": "Song0", "time_ms": 1000}},
+    )
+
+    # No game_event_result because the answer was ignored.
+    result_events = [e for e in sio_env["emitted"] if e["event"] == "game_event_result"]
+    assert len(result_events) == 0
+
+
+async def test_disconnect_cancels_round_timer(sio_env, monkeypatch):
+    """When the room empties, the round timer must be cancelled."""
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+    await _start_game_mocked(sio_env, code)
+
+    _real_sleep = asyncio.sleep
+
+    async def _slow_sleep(_delay, *args, **kwargs):
+        await _real_sleep(60)
+
+    monkeypatch.setattr("app.sockets.handlers.asyncio.sleep", _slow_sleep)
+
+    await sio_env["handlers"]["game_event"](
+        "sid-1", {"code": code, "event_type": "countdown_done", "payload": {}}
+    )
+    timer = app.sockets.handlers._round_timers.get(code)
+    assert timer is not None
+
+    await sio_env["handlers"]["disconnect"]("sid-1")
+
+    assert code not in app.sockets.handlers._round_timers
+    # Give the cancelled task a chance to finalize its state.
+    await asyncio.sleep(0)
+    assert timer.cancelled() or timer.done()
+
+
+async def test_start_game_cancels_existing_timer(sio_env, monkeypatch):
+    """Defensive: starting a new game cancels any leftover round timer for the room."""
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+    await _start_game_mocked(sio_env, code)
+
+    _real_sleep = asyncio.sleep
+
+    async def _slow_sleep(_delay, *args, **kwargs):
+        await _real_sleep(60)
+
+    monkeypatch.setattr("app.sockets.handlers.asyncio.sleep", _slow_sleep)
+
+    await sio_env["handlers"]["game_event"](
+        "sid-1", {"code": code, "event_type": "countdown_done", "payload": {}}
+    )
+    first_timer = app.sockets.handlers._round_timers.get(code)
+    assert first_timer is not None
+
+    # Start a new game in the same room.
+    await _start_game_mocked(sio_env, code)
+
+    # The old timer should be cancelled (and possibly replaced by no timer
+    # since the new game is still in countdown).
+    await asyncio.sleep(0)
+    assert first_timer.cancelled() or first_timer.done()
 
 
 async def test_game_event_finish_race_condition_no_double_end(sio_env, monkeypatch):
