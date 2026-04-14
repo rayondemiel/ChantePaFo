@@ -15,6 +15,18 @@ _EMPTY_ANSWER: dict[str, Any] = {
     "distance": 999,
 }
 
+# Phase constants for the auto-advancing blindtest timeline:
+#   countdown      → only at game start, exited via "countdown_done" event
+#   playing        → music plays, players answer (no cover/title/artist exposed)
+#   playing_reveal → music continues, cover/title/artist revealed, scores locked
+#   round_pause    → silent transition between rounds
+#   finished       → game over
+PHASE_COUNTDOWN = "countdown"
+PHASE_PLAYING = "playing"
+PHASE_PLAYING_REVEAL = "playing_reveal"
+PHASE_ROUND_PAUSE = "round_pause"
+PHASE_FINISHED = "finished"
+
 
 class BlindtestMode(GameMode):
     name = "blindtest"
@@ -45,7 +57,7 @@ class BlindtestMode(GameMode):
             self.history["total_scores"][p["id"]] = 0
 
         self.state = {
-            "phase": "countdown",
+            "phase": PHASE_COUNTDOWN,
             "current_round": 0,
             "total_rounds": len(self.tracks),
             "extract_duration": settings.get("extract_duration", 20),
@@ -54,19 +66,23 @@ class BlindtestMode(GameMode):
             "round_results": {},
         }
         self._load_round(0)
+        # _load_round leaves phase untouched on success; the game starts in
+        # countdown explicitly (only once, at the very beginning of the game).
+        self.state["phase"] = PHASE_COUNTDOWN
 
     def _load_round(self, round_idx: int) -> None:
         if round_idx >= len(self.tracks):
-            self.state["phase"] = "finished"
+            self.state["phase"] = PHASE_FINISHED
             return
         track = self.tracks[round_idx]
         self.state["current_round"] = round_idx
+        # Only expose preview_url and genre during play. cover_url / title /
+        # artist are added at the reveal transition, otherwise visual leaks
+        # would let players see the answer.
         self.state["track"] = {
             "preview_url": track["preview_url"],
-            "cover_url": track.get("cover_url", ""),
             "genre": track.get("genre", ""),
         }
-        self.state["phase"] = "countdown"
         self.state["round_scores"] = {}
         self.state["round_results"] = {}
         self.round_answers = {}
@@ -78,17 +94,11 @@ class BlindtestMode(GameMode):
         data: dict[str, Any],
     ) -> dict[str, Any] | None:
         if event_type == "countdown_done":
-            self.state["phase"] = "playing"
-            return {"phase": "playing"}
+            self.state["phase"] = PHASE_PLAYING
+            return {"phase": PHASE_PLAYING}
 
-        if event_type == "answer" and self.state["phase"] == "playing":
+        if event_type == "answer" and self.state.get("phase") == PHASE_PLAYING:
             return self._handle_answer(player_id, data)
-
-        if event_type in ("round_timeout", "next_round"):
-            return self._handle_end_of_round()
-
-        if event_type == "advance_round":
-            return self._handle_advance_round()
 
         return None
 
@@ -112,36 +122,49 @@ class BlindtestMode(GameMode):
         self.round_answers[player_id] = result
         return result
 
-    def _handle_end_of_round(self) -> dict[str, Any]:
-        self._fill_missing_answers()
-        scores = calculate_round_scores(list(self.round_answers.values()))
-        self.state["round_scores"] = scores
-
+    def advance_to_reveal(self) -> dict[str, Any]:
+        """Transition playing → playing_reveal. Locks scores and exposes cover/title/artist."""
+        self._end_round_scoring()
         track = self.tracks[self.state["current_round"]]
-        round_results = {
+        # Expose cover_url on the track dict now that the round is over.
+        current_track = self.state.get("track") or {}
+        current_track["cover_url"] = track.get("cover_url", "")
+        self.state["track"] = current_track
+        self.state["round_results"] = {
             "correct_title": track["title"],
             "correct_artist": track["artist"],
             "cover_url": track.get("cover_url", ""),
         }
-        self.state["round_results"] = round_results
+        self.state["phase"] = PHASE_PLAYING_REVEAL
+        return {
+            "phase": PHASE_PLAYING_REVEAL,
+            "scores": self.state["round_scores"],
+            "results": self.state["round_results"],
+        }
+
+    def advance_to_pause(self) -> dict[str, Any]:
+        """Transition playing_reveal → round_pause. Frontend stops audio here."""
+        self.state["phase"] = PHASE_ROUND_PAUSE
+        return {"phase": PHASE_ROUND_PAUSE}
+
+    def advance_to_next_round(self) -> dict[str, Any]:
+        """Transition round_pause → playing (next round) or finished if last."""
+        next_round = self.state["current_round"] + 1
+        if next_round >= len(self.tracks):
+            self.state["phase"] = PHASE_FINISHED
+            return {"phase": PHASE_FINISHED}
+        self._load_round(next_round)
+        self.state["phase"] = PHASE_PLAYING
+        return {"phase": PHASE_PLAYING}
+
+    def _end_round_scoring(self) -> None:
+        self._fill_missing_answers()
+        scores = calculate_round_scores(list(self.round_answers.values()))
+        self.state["round_scores"] = scores
 
         self.history["rounds"].append({"answers": dict(self.round_answers), "scores": scores})
         for pid, pts in scores.items():
             self.history["total_scores"][pid] = self.history["total_scores"].get(pid, 0) + pts
-
-        next_round = self.state["current_round"] + 1
-        if next_round >= len(self.tracks):
-            self.state["phase"] = "finished"
-        else:
-            self.state["phase"] = "round_result"
-
-        return {"phase": self.state["phase"], "scores": scores, "results": round_results}
-
-    def _handle_advance_round(self) -> dict[str, Any]:
-        next_round = self.state["current_round"] + 1
-        if next_round < len(self.tracks):
-            self._load_round(next_round)
-        return {"phase": self.state["phase"]}
 
     def _fill_missing_answers(self) -> None:
         for p in self.players:
