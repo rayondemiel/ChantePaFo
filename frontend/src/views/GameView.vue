@@ -278,7 +278,6 @@ onUnmounted(() => {
 .zone-content {
   position: relative;
   z-index: 1;
-  overflow: hidden;
 }
 
 @keyframes ambient-drift-1 {

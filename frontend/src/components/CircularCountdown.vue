@@ -175,8 +175,8 @@ onBeforeUnmount(() => {
 }
 
 .countdown-critical {
-  animation: countdown-shake 0.15s ease-in-out infinite;
-  box-shadow: 0 0 20px rgba(var(--color-error-rgb), 0.6);
+  animation: countdown-shake 0.12s ease-in-out infinite;
+  box-shadow: 0 0 30px rgba(var(--color-error-rgb), 0.6);
 }
 
 .countdown-critical::after {
@@ -230,6 +230,7 @@ onBeforeUnmount(() => {
   text-shadow:
     0 0 12px rgba(var(--color-error-rgb), 0.7),
     0 0 24px rgba(var(--color-error-rgb), 0.3);
+  filter: drop-shadow(0 0 8px rgba(var(--color-error-rgb), 0.5));
 }
 
 @keyframes countdown-shake {
@@ -238,10 +239,10 @@ onBeforeUnmount(() => {
     transform: translateX(0);
   }
   25% {
-    transform: translateX(-2px) rotate(-2deg);
+    transform: translateX(-1.5px) rotate(-1.5deg);
   }
   75% {
-    transform: translateX(2px) rotate(2deg);
+    transform: translateX(1.5px) rotate(1.5deg);
   }
 }
 
@@ -284,8 +285,8 @@ onBeforeUnmount(() => {
 
 @media (min-width: 768px) {
   .circular-countdown {
-    width: 80px;
-    height: 80px;
+    width: 88px;
+    height: 88px;
   }
 }
 </style>

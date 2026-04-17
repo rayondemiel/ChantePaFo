@@ -139,17 +139,16 @@ describe('BlindtestRound', () => {
     expect((input.element as HTMLInputElement).disabled).toBe(false)
   })
 
-  it('renders ScoreBoard during playing phase with compact styling', async () => {
+  it('renders live ranking in sidebar during playing phase on desktop', async () => {
     const { wrapper } = await setup({
       phase: 'playing',
       track: { preview_url: 'http://x/y.mp3', genre: 'pop' },
       total_scores: { u1: 5, u2: 3 },
     })
-    const scoreboard = wrapper.findComponent({ name: 'ScoreBoard' })
-    expect(scoreboard.exists()).toBe(true)
-    const rows = wrapper.findAll('.score-row')
+    const ranking = wrapper.find('.live-ranking')
+    expect(ranking.exists()).toBe(true)
+    const rows = wrapper.findAll('.ranking-row')
     expect(rows.length).toBe(2)
-    expect(wrapper.find('.scoreboard-compact').exists()).toBe(true)
   })
 
   it('emits game_event with answer payload when AnswerInput submits', async () => {
@@ -610,7 +609,7 @@ describe('BlindtestRound', () => {
     expect(unsubscribed).toContain('player_match')
   })
 
-  it('renders a live ticker pill when player_match is received during playing', async () => {
+  it('shows match status in live ranking when player_match is received', async () => {
     const { wrapper } = await setup({
       phase: 'playing',
       track: { preview_url: 'http://x/y.mp3', genre: 'pop' },
@@ -620,13 +619,14 @@ describe('BlindtestRound', () => {
     handler({ player_id: 'u2', time_ms: 3200, match_type: 'title' })
     await flushPromises()
 
-    const pills = wrapper.findAll('.ticker-pill')
-    expect(pills).toHaveLength(1)
-    expect(pills[0].text()).toContain('Bob')
-    expect(pills[0].text()).toContain('3.2s')
+    const rows = wrapper.findAll('.ranking-row')
+    expect(rows.length).toBe(2)
+    const bobRow = rows.find((r) => r.text().includes('Bob'))
+    expect(bobRow).toBeDefined()
+    expect(bobRow!.classes()).toContain('ranking-partial')
   })
 
-  it('updates live ticker entry when same player sends upgraded match_type', async () => {
+  it('upgrades match status in live ranking when player sends bonus', async () => {
     const { wrapper } = await setup({
       phase: 'playing',
       track: { preview_url: 'http://x/y.mp3', genre: 'pop' },
@@ -636,11 +636,11 @@ describe('BlindtestRound', () => {
     handler({ player_id: 'u2', time_ms: 3200, match_type: 'title' })
     handler({ player_id: 'u2', time_ms: 4000, match_type: 'bonus' })
     await flushPromises()
-    const pills = wrapper.findAll('.ticker-pill')
-    expect(pills).toHaveLength(1)
+    const bobRow = wrapper.findAll('.ranking-row').find((r) => r.text().includes('Bob'))
+    expect(bobRow!.classes()).toContain('ranking-bonus')
   })
 
-  it('resets the live ticker when entering the next round', async () => {
+  it('resets live ranking match status when entering the next round', async () => {
     const { wrapper, game } = await setup({
       phase: 'playing',
       current_round: 0,
@@ -650,7 +650,7 @@ describe('BlindtestRound', () => {
     const handler = call![1] as (d: unknown) => void
     handler({ player_id: 'u2', time_ms: 3200, match_type: 'title' })
     await flushPromises()
-    expect(wrapper.findAll('.ticker-pill')).toHaveLength(1)
+    expect(wrapper.find('.ranking-partial').exists()).toBe(true)
 
     game.setState({
       phase: 'round_pause',
@@ -669,7 +669,8 @@ describe('BlindtestRound', () => {
     })
     await flushPromises()
 
-    expect(wrapper.findAll('.ticker-pill')).toHaveLength(0)
+    expect(wrapper.find('.ranking-partial').exists()).toBe(false)
+    expect(wrapper.find('.ranking-bonus').exists()).toBe(false)
   })
 
   it('detaches the music binding on unmount', async () => {

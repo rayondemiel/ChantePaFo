@@ -84,6 +84,7 @@ const ranked = computed(() => {
 
 .score-row:hover {
   transform: translateX(2px);
+  box-shadow: 0 0 12px hsla(var(--hue), 90%, 60%, 0.25);
 }
 
 /* First place: golden glow */
@@ -104,12 +105,14 @@ const ranked = computed(() => {
   box-shadow:
     0 0 18px rgba(var(--color-warning-rgb), 0.2),
     inset 0 0 20px rgba(var(--color-warning-rgb), 0.05);
+  animation: leader-pulse 2s ease-in-out infinite;
 }
 
 .crown {
   font-size: 0.8em;
   margin-right: 0.15em;
   filter: drop-shadow(0 0 4px rgba(var(--color-warning-rgb), 0.6));
+  animation: crown-float 2s ease-in-out infinite;
 }
 
 .score-rank {
@@ -139,6 +142,37 @@ const ranked = computed(() => {
   font-family: var(--font-display);
   color: var(--color-warning);
   letter-spacing: 1px;
-  text-shadow: 0 0 8px rgba(var(--color-warning-rgb), 0.4);
+  text-shadow:
+    0 0 8px rgba(var(--color-warning-rgb), 0.3),
+    0 0 16px rgba(var(--color-warning-rgb), 0.15);
+}
+
+@keyframes leader-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.01);
+  }
+}
+
+@keyframes crown-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .score-row-leader {
+    animation: none;
+  }
+  .crown {
+    animation: none;
+  }
 }
 </style>

@@ -130,14 +130,14 @@ onBeforeUnmount(() => {
   bottom: 0;
   left: 50%;
   width: 0;
-  height: 2px;
+  height: 3px;
   background: linear-gradient(90deg, var(--color-primary), var(--color-accent));
-  box-shadow: 0 0 8px rgba(var(--color-primary-rgb), 0.4);
+  box-shadow: 0 0 12px rgba(var(--color-primary-rgb), 0.5);
   transition:
     width 0.3s var(--ease-smooth),
     left 0.3s var(--ease-smooth);
   pointer-events: none;
-  border-radius: 1px;
+  border-radius: 1.5px;
 }
 
 .answer-input-wrap:focus-within::after {
@@ -149,13 +149,27 @@ onBeforeUnmount(() => {
   min-height: 48px;
   font-family: var(--font-body);
   font-size: var(--text-lg);
+  border: 1px solid rgba(var(--color-accent-rgb), 0.15);
+  transition:
+    border-color 0.2s var(--ease-smooth),
+    box-shadow 0.2s var(--ease-smooth);
+}
+
+.input-answer::placeholder {
+  color: rgba(var(--color-white-rgb), 0.35);
+}
+
+.input-answer:focus {
+  border-color: rgba(var(--color-accent-rgb), 0.5);
+  box-shadow: 0 0 20px rgba(var(--color-accent-rgb), 0.15);
 }
 
 .feedback-slot {
-  min-height: 1.8rem;
+  min-height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: opacity 0.2s var(--ease-smooth);
 }
 
 .feedback-slot .feedback-correct,
@@ -170,7 +184,7 @@ onBeforeUnmount(() => {
 .feedback-slot .feedback-correct {
   background: rgba(var(--color-success-rgb), 0.18);
   color: var(--color-success);
-  box-shadow: 0 0 18px rgba(var(--color-success-rgb), 0.35);
+  box-shadow: 0 0 25px rgba(var(--color-success-rgb), 0.4);
 }
 
 .feedback-slot .feedback-soft {
@@ -186,7 +200,7 @@ onBeforeUnmount(() => {
 }
 
 .input-answer:disabled {
-  opacity: 0.55;
+  opacity: 0.6;
   cursor: not-allowed;
 }
 

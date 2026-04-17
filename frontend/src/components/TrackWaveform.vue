@@ -11,7 +11,8 @@
       <defs>
         <linearGradient id="bar-gradient-filled" x1="0" y1="1" x2="0" y2="0">
           <stop class="gradient-stop-bottom" offset="0%" />
-          <stop class="gradient-stop-top" offset="100%" />
+          <stop class="gradient-stop-top" offset="92%" />
+          <stop class="gradient-stop-highlight" offset="100%" />
         </linearGradient>
         <linearGradient id="bar-gradient-critical" x1="0" y1="1" x2="0" y2="0">
           <stop class="gradient-stop-critical-bottom" offset="0%" />
@@ -35,7 +36,7 @@
           { 'bar-animate': i < filledCount && !props.frozen },
         ]"
         :style="{ animationDelay: `${(i * 73) % 2000}ms` }"
-        rx="1.5"
+        rx="2.5"
       />
     </svg>
 
@@ -135,6 +136,7 @@ const positionedMarkers = computed(() =>
   height: 48px;
   border-radius: var(--radius-md);
   background: rgba(var(--color-surface-rgb), 0.5);
+  border: 1px solid rgba(var(--color-accent-rgb), 0.08);
   overflow: visible;
   transition: box-shadow 0.3s var(--ease-smooth);
 }
@@ -159,6 +161,10 @@ const positionedMarkers = computed(() =>
   stop-color: var(--color-accent);
   stop-opacity: 0.9;
 }
+.gradient-stop-highlight {
+  stop-color: var(--color-text);
+  stop-opacity: 0.05;
+}
 .gradient-stop-critical-bottom {
   stop-color: var(--color-error);
   stop-opacity: 0.5;
@@ -182,7 +188,7 @@ const positionedMarkers = computed(() =>
 }
 
 .bar-unfilled {
-  fill: rgba(var(--color-white-rgb), 0.1);
+  fill: rgba(var(--color-white-rgb), 0.15);
   transition:
     fill 0.3s var(--ease-smooth),
     opacity 0.3s var(--ease-smooth);
@@ -252,11 +258,12 @@ const positionedMarkers = computed(() =>
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 2px;
+  width: 3px;
   background: var(--color-accent);
   box-shadow:
     0 0 8px rgba(var(--color-accent-rgb), 0.7),
-    0 0 16px rgba(var(--color-accent-rgb), 0.3);
+    0 0 16px rgba(var(--color-accent-rgb), 0.3),
+    -4px 0 8px rgba(var(--color-accent-rgb), 0.3);
   pointer-events: none;
   transition: left 0.2s linear;
 }
@@ -339,7 +346,7 @@ const positionedMarkers = computed(() =>
   align-items: center;
   gap: 1px;
   padding: 0.2rem 0.4rem;
-  background: rgba(var(--color-surface-rgb), 0.95);
+  background: linear-gradient(135deg, var(--color-surface), var(--color-surface-hover));
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   white-space: nowrap;

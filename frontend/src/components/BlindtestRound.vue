@@ -32,7 +32,13 @@
         <Transition name="phase" mode="out-in">
           <div v-if="isAnswerPhase" :key="'answer-' + phase" class="answer-stage">
             <div v-if="phase === 'playing' && !locallyFound" class="mystery-orb" aria-hidden="true">
-              <span class="orb-symbol" aria-hidden="true">&#9835;</span>
+              <div class="synth-ring synth-ring-3"></div>
+              <div class="synth-ring synth-ring-2"></div>
+              <div class="synth-ring synth-ring-1"></div>
+              <div class="synth-sun">
+                <span class="orb-symbol">&#9835;</span>
+              </div>
+              <div class="synth-sonar"></div>
             </div>
             <div v-else-if="showReveal" class="reveal anim-reveal-slide">
               <img v-if="revealCoverUrl" class="reveal-cover" :src="revealCoverUrl" alt="" />
@@ -234,37 +240,47 @@
         </Transition>
       </div>
 
-      <!-- Desktop sidebar: persistent scoreboard + live ticker -->
+      <!-- Desktop sidebar -->
       <aside v-if="!isMobile && phase !== 'countdown' && phase !== 'finished'" class="sidebar">
-        <div class="sidebar-section">
-          <h3 class="sidebar-heading text-display">Scores</h3>
-          <ScoreBoard :scores="totalScores" :players="playerMap" class="scoreboard-sidebar" />
-        </div>
-        <div v-if="phase === 'playing' && liveFound.length > 0" class="sidebar-section">
-          <h3 class="sidebar-heading text-display">Trouvé</h3>
-          <ul class="live-ticker sidebar-ticker" aria-label="Joueurs ayant trouvé">
-            <li
-              v-for="entry in liveFound"
-              :key="entry.player_id"
-              class="ticker-pill anim-slide-right"
-              :style="{
-                '--hue': getPlayerHue(entry.player_id),
-                '--match-bg': matchColor(entry.match_type),
-              }"
-            >
-              <span class="ticker-avatar" aria-hidden="true"></span>
-              <span class="ticker-name">{{ entry.name }}</span>
-              <span class="ticker-match" :class="'match-' + entry.match_type">{{
-                matchLabel(entry.match_type)
-              }}</span>
-              <span class="ticker-time">{{ formatTime(entry.time_ms) }}</span>
-              <span
-                v-if="entry.match_type === 'bonus' && isFirstBonus(entry.player_id)"
-                class="ticker-badge"
-                >&#9889; 1er</span
+        <!-- Live ranking (current round only, during playing) -->
+        <div v-if="phase === 'playing'" class="sidebar-section">
+          <h3 class="sidebar-heading text-display">Manche en cours</h3>
+          <ol class="live-ranking" aria-label="Classement en direct">
+            <TransitionGroup name="ranking">
+              <li
+                v-for="(entry, idx) in liveRanking"
+                :key="entry.player_id"
+                class="ranking-row"
+                :class="{
+                  'ranking-bonus': entry.match_type === 'bonus',
+                  'ranking-partial': entry.match_type === 'title' || entry.match_type === 'artist',
+                  'ranking-none': !entry.match_type,
+                  'ranking-leader': idx === 0 && !!entry.match_type,
+                }"
+                :style="{ '--hue': getPlayerHue(entry.player_id) }"
               >
-            </li>
-          </ul>
+                <span class="ranking-pos">{{ idx + 1 }}</span>
+                <span class="ranking-avatar" aria-hidden="true"></span>
+                <span class="ranking-name">{{ entry.name }}</span>
+                <span
+                  v-if="entry.match_type"
+                  class="ranking-badge"
+                  :class="'match-' + entry.match_type"
+                >
+                  {{ matchLabel(entry.match_type) }}
+                </span>
+                <span v-if="entry.time_ms != null" class="ranking-time">{{
+                  formatTime(entry.time_ms)
+                }}</span>
+              </li>
+            </TransitionGroup>
+          </ol>
+        </div>
+
+        <!-- Total scores (always visible, all phases) -->
+        <div class="sidebar-section">
+          <h3 class="sidebar-heading text-display">Score total</h3>
+          <ScoreBoard :scores="totalScores" :players="playerMap" class="scoreboard-sidebar" />
         </div>
       </aside>
     </div>
@@ -421,6 +437,39 @@ function isFirstBonus(playerId: string): boolean {
   const first = liveFound.value.find((e) => e.match_type === 'bonus')
   return first?.player_id === playerId
 }
+
+interface RankingEntry {
+  player_id: string
+  name: string
+  match_type: string | null
+  time_ms: number | null
+}
+
+const liveRanking = computed<RankingEntry[]>(() => {
+  const players = roomStore.room?.players ?? []
+  const foundMap = new Map(liveFound.value.map((f) => [f.player_id, f]))
+  const typePriority: Record<string, number> = { bonus: 0, title: 1, artist: 1 }
+
+  return players
+    .map((p) => {
+      const found = foundMap.get(p.id)
+      return {
+        player_id: p.id,
+        name: p.name,
+        match_type: found?.match_type ?? null,
+        time_ms: found?.time_ms ?? null,
+      }
+    })
+    .sort((a, b) => {
+      const pa = a.match_type ? (typePriority[a.match_type] ?? 2) : 3
+      const pb = b.match_type ? (typePriority[b.match_type] ?? 2) : 3
+      if (pa !== pb) return pa - pb
+      if (a.time_ms != null && b.time_ms != null) return a.time_ms - b.time_ms
+      if (a.time_ms != null) return -1
+      if (b.time_ms != null) return 1
+      return (totalScores.value[b.player_id] ?? 0) - (totalScores.value[a.player_id] ?? 0)
+    })
+})
 
 let playStart = 0
 
@@ -614,7 +663,7 @@ onBeforeUnmount(() => {
   gap: var(--space-lg);
   padding: var(--space-lg) var(--space-md);
   min-height: 60vh;
-  overflow: hidden;
+  overflow: visible;
 }
 
 /* === Phase transitions === */
@@ -647,60 +696,160 @@ onBeforeUnmount(() => {
 
 /* === Answer stage === */
 .answer-stage {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: var(--space-lg);
   width: 100%;
+  flex: 1;
 }
 
 .hint {
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
-  letter-spacing: 1px;
+  color: var(--color-accent);
+  font-size: var(--text-base);
+  letter-spacing: 2px;
   text-transform: uppercase;
+  text-shadow: 0 0 12px rgba(var(--color-accent-rgb), 0.35);
 }
 
-/* === Mystery orb === */
+@media (min-width: 768px) {
+  .hint {
+    font-size: var(--text-lg);
+  }
+}
+
+/* === Mystery orb (synthwave sun adaptation) === */
 .mystery-orb {
   position: relative;
-  width: 180px;
-  height: 180px;
+  width: 170px;
+  height: 170px;
   border-radius: 50%;
-  background:
-    radial-gradient(
-      circle at 35% 35%,
-      rgba(var(--color-primary-rgb), 0.55),
-      rgba(var(--color-secondary-rgb), 0.35) 45%,
-      rgba(var(--color-accent-rgb), 0.15) 75%,
-      transparent 100%
-    ),
-    conic-gradient(
-      from 0deg,
-      var(--color-primary),
-      var(--color-secondary),
-      var(--color-accent),
-      var(--color-primary)
-    );
-  filter: blur(2px);
-  box-shadow:
-    0 0 60px rgba(var(--color-primary-rgb), 0.45),
-    0 0 120px rgba(var(--color-accent-rgb), 0.25);
-  animation:
-    cover-spin 8s linear infinite,
-    orb-pulse 3s ease-in-out infinite;
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: visible;
+}
+
+.mystery-orb .synth-sun {
+  position: absolute;
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  background:
+    repeating-linear-gradient(
+      180deg,
+      transparent 0px,
+      transparent 4.5px,
+      rgba(var(--color-bg-rgb), 0.92) 4.5px,
+      rgba(var(--color-bg-rgb), 0.92) 6px
+    ),
+    linear-gradient(
+      180deg,
+      var(--color-warning) 0%,
+      var(--color-sun-mid) 38%,
+      var(--color-primary) 65%,
+      var(--color-secondary) 100%
+    );
+  box-shadow:
+    0 0 24px rgba(var(--color-primary-rgb), 0.6),
+    0 0 48px rgba(var(--color-secondary-rgb), 0.35),
+    0 0 72px rgba(var(--color-accent-rgb), 0.2);
+  animation: sun-breathe 3s ease-in-out infinite;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+
+.mystery-orb .synth-ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border-radius: 50%;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
+.mystery-orb .synth-ring-1 {
+  width: 140px;
+  height: 140px;
+  margin: -70px 0 0 -70px;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    var(--color-accent) 25deg,
+    transparent 55deg,
+    transparent 180deg,
+    var(--color-accent) 205deg,
+    transparent 235deg,
+    transparent 360deg
+  );
+  -webkit-mask: radial-gradient(circle, transparent 60%, #000 62%, #000 66%, transparent 68%);
+  mask: radial-gradient(circle, transparent 60%, #000 62%, #000 66%, transparent 68%);
+  filter: drop-shadow(0 0 5px var(--color-accent));
+  animation: ring-cw 5s linear infinite;
+}
+
+.mystery-orb .synth-ring-2 {
+  width: 180px;
+  height: 180px;
+  margin: -90px 0 0 -90px;
+  background: conic-gradient(
+    from 90deg,
+    transparent 0deg,
+    var(--color-primary) 35deg,
+    transparent 75deg,
+    transparent 360deg
+  );
+  -webkit-mask: radial-gradient(circle, transparent 60%, #000 64%, #000 68%, transparent 70%);
+  mask: radial-gradient(circle, transparent 60%, #000 64%, #000 68%, transparent 70%);
+  filter: drop-shadow(0 0 6px var(--color-primary));
+  animation: ring-ccw 8s linear infinite;
+}
+
+.mystery-orb .synth-ring-3 {
+  width: 220px;
+  height: 220px;
+  margin: -110px 0 0 -110px;
+  background: conic-gradient(
+    from 180deg,
+    transparent 0deg,
+    var(--color-secondary) 20deg,
+    transparent 48deg,
+    transparent 180deg,
+    var(--color-secondary) 200deg,
+    transparent 228deg,
+    transparent 360deg
+  );
+  -webkit-mask: radial-gradient(circle, transparent 62%, #000 66%, #000 70%, transparent 72%);
+  mask: radial-gradient(circle, transparent 62%, #000 66%, #000 70%, transparent 72%);
+  filter: drop-shadow(0 0 6px var(--color-secondary));
+  animation: ring-cw 12s linear infinite;
+}
+
+.mystery-orb .synth-sonar {
+  position: absolute;
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  border: 1px solid rgba(var(--color-accent-rgb), 0.3);
+  animation: synth-sonar-pulse 3s ease-out infinite;
+  pointer-events: none;
 }
 
 .orb-symbol {
   font-family: var(--font-display);
-  font-size: var(--text-hero);
-  color: rgba(var(--color-white-rgb), 0.25);
-  filter: blur(0px);
-  text-shadow: 0 0 20px rgba(var(--color-white-rgb), 0.15);
+  font-size: var(--text-2xl);
+  color: var(--color-text);
+  opacity: 0.7;
+  text-shadow:
+    0 0 20px rgba(var(--color-accent-rgb), 0.6),
+    0 0 40px rgba(var(--color-primary-rgb), 0.4);
   pointer-events: none;
+  animation: orb-note-bob 2s ease-in-out infinite;
+  position: relative;
+  z-index: 3;
 }
 
 /* === Found overlay === */
@@ -728,7 +877,10 @@ onBeforeUnmount(() => {
 }
 
 .playing-countdown {
-  align-self: center;
+  position: absolute;
+  top: var(--space-sm);
+  right: var(--space-sm);
+  z-index: 2;
 }
 
 /* === Live ticker === */
@@ -739,7 +891,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: var(--space-xs);
+  gap: var(--space-sm);
   width: 100%;
   max-width: 420px;
 }
@@ -753,7 +905,7 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-full);
   background: linear-gradient(
     90deg,
-    hsla(var(--hue), 85%, 55%, 0.28),
+    hsla(var(--hue), 85%, 55%, 0.35),
     rgba(var(--color-surface-rgb), 0.9)
   );
   border: 1px solid hsla(var(--hue), 90%, 60%, 0.4);
@@ -763,8 +915,8 @@ onBeforeUnmount(() => {
 }
 
 .ticker-avatar {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   background: hsl(var(--hue), 95%, 62%);
   box-shadow: 0 0 8px hsla(var(--hue), 95%, 62%, 0.7);
@@ -786,16 +938,19 @@ onBeforeUnmount(() => {
 .match-bonus {
   background: rgba(var(--color-success-rgb), 0.25);
   color: var(--color-success);
+  text-shadow: 0 0 6px rgba(var(--color-success-rgb), 0.4);
 }
 
 .match-title {
   background: rgba(var(--color-accent-rgb), 0.2);
   color: var(--color-accent);
+  text-shadow: 0 0 6px rgba(var(--color-accent-rgb), 0.4);
 }
 
 .match-artist {
   background: rgba(var(--color-warning-rgb), 0.2);
   color: var(--color-warning);
+  text-shadow: 0 0 6px rgba(var(--color-warning-rgb), 0.4);
 }
 
 .ticker-time {
@@ -810,6 +965,17 @@ onBeforeUnmount(() => {
   color: var(--color-warning);
   text-shadow: 0 0 6px rgba(var(--color-warning-rgb), 0.5);
   white-space: nowrap;
+  animation: badge-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes badge-pulse {
+  0%,
+  100% {
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 /* === Compact scoreboard (mobile, inside answer stage) === */
@@ -853,19 +1019,30 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-md);
   object-fit: cover;
   box-shadow: 0 4px 30px rgba(var(--color-black-rgb), 0.4);
+  border: 2px solid rgba(var(--color-accent-rgb), 0.3);
+  transform: scale(0.85);
+  transition: transform 0.4s var(--ease-bounce);
+}
+
+.anim-reveal-slide .reveal-cover {
+  transform: scale(1);
 }
 
 .reveal-title {
   font-size: var(--text-2xl);
   color: var(--color-text);
   text-align: center;
-  text-shadow: 0 0 20px rgba(var(--color-accent-rgb), 0.5);
+  text-shadow:
+    0 0 20px rgba(var(--color-accent-rgb), 0.5),
+    0 0 40px rgba(var(--color-primary-rgb), 0.3);
 }
 
 .reveal-artist {
-  color: var(--color-text-muted);
+  color: var(--color-accent);
   font-size: var(--text-lg);
-  letter-spacing: 1px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  text-shadow: 0 0 10px rgba(var(--color-accent-rgb), 0.3);
 }
 
 /* === Pause stage === */
@@ -1021,7 +1198,7 @@ onBeforeUnmount(() => {
 }
 
 .podium-rank-1 {
-  min-height: 180px;
+  min-height: 190px;
 }
 
 .podium-rank-2 {
@@ -1035,8 +1212,8 @@ onBeforeUnmount(() => {
 .podium-champion {
   border-color: rgba(var(--color-warning-rgb), 0.5);
   box-shadow:
-    0 0 30px rgba(var(--color-warning-rgb), 0.25),
-    0 0 60px hsla(var(--hue), 90%, 60%, 0.15),
+    0 0 40px rgba(var(--color-warning-rgb), 0.3),
+    0 0 70px hsla(var(--hue), 90%, 60%, 0.2),
     inset 0 0 40px rgba(var(--color-warning-rgb), 0.06);
   background: linear-gradient(
     180deg,
@@ -1103,7 +1280,7 @@ onBeforeUnmount(() => {
   position: absolute;
   top: -6px;
   filter: drop-shadow(0 0 6px rgba(var(--color-warning-rgb), 0.7));
-  animation: crown-float 2.5s ease-in-out infinite;
+  animation: crown-float 2s ease-in-out infinite;
 }
 
 .podium-name {
@@ -1128,10 +1305,13 @@ onBeforeUnmount(() => {
 
 .podium-score {
   font-family: var(--font-display);
+  font-weight: 700;
   font-size: var(--text-sm);
   color: var(--color-warning);
   letter-spacing: 1px;
-  text-shadow: 0 0 10px rgba(var(--color-warning-rgb), 0.45);
+  text-shadow:
+    0 0 10px rgba(var(--color-warning-rgb), 0.45),
+    0 0 20px rgba(var(--color-warning-rgb), 0.2);
 }
 
 /* === Final Scoreboard === */
@@ -1317,19 +1497,54 @@ onBeforeUnmount(() => {
 }
 
 /* === Keyframes === */
-@keyframes cover-spin {
+@keyframes ring-cw {
+  from {
+    transform: rotate(0deg);
+  }
   to {
     transform: rotate(360deg);
   }
 }
 
-@keyframes orb-pulse {
+@keyframes ring-ccw {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+@keyframes sun-breathe {
   0%,
   100% {
-    transform: scale(0.97);
+    transform: scale(1);
+    filter: brightness(1);
   }
   50% {
-    transform: scale(1.04);
+    transform: scale(1.06);
+    filter: brightness(1.15);
+  }
+}
+
+@keyframes orb-note-bob {
+  0%,
+  100% {
+    transform: translateY(-3px);
+  }
+  50% {
+    transform: translateY(3px);
+  }
+}
+
+@keyframes synth-sonar-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(2);
+    opacity: 0;
   }
 }
 
@@ -1413,7 +1628,7 @@ onBeforeUnmount(() => {
     transform: translateY(0);
   }
   50% {
-    transform: translateY(-4px);
+    transform: translateY(-2px);
   }
 }
 
@@ -1433,7 +1648,11 @@ onBeforeUnmount(() => {
 
 /* === Reduced motion === */
 @media (prefers-reduced-motion: reduce) {
-  .mystery-orb {
+  .mystery-orb .synth-ring,
+  .mystery-orb .synth-sonar,
+  .mystery-orb .synth-sun,
+  .orb-symbol,
+  .ticker-badge {
     animation: none;
   }
   .pause-indicator {
@@ -1480,16 +1699,25 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: 1fr min(340px, 30%);
   gap: var(--space-xl);
-  align-items: start;
+  align-items: stretch;
+  min-height: calc(100vh - 80px);
 }
 
 .layout-desktop .zone-content {
-  min-height: auto;
+  min-height: 0;
+  justify-content: flex-start;
+  padding-top: var(--space-xl);
 }
 
 .layout-desktop .mystery-orb {
-  width: 240px;
-  height: 240px;
+  width: 220px;
+  height: 220px;
+}
+
+.layout-desktop .mystery-orb .synth-ring-3 {
+  width: 280px;
+  height: 280px;
+  margin: -140px 0 0 -140px;
 }
 
 .layout-desktop .reveal-cover {
@@ -1580,6 +1808,135 @@ onBeforeUnmount(() => {
   margin: 0;
 }
 
+/* === Live ranking === */
+.live-ranking {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  position: relative;
+}
+
+.ranking-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-sm);
+  background: rgba(var(--color-surface-rgb), 0.6);
+  border-left: 3px solid transparent;
+  transition:
+    transform 0.4s var(--ease-bounce),
+    background 0.3s,
+    border-color 0.3s,
+    box-shadow 0.3s;
+}
+
+.ranking-bonus {
+  border-left-color: var(--color-success);
+  background: linear-gradient(
+    90deg,
+    rgba(var(--color-success-rgb), 0.15),
+    rgba(var(--color-surface-rgb), 0.6) 60%
+  );
+  box-shadow: inset 0 0 20px rgba(var(--color-success-rgb), 0.08);
+}
+
+.ranking-partial {
+  border-left-color: var(--color-accent);
+  background: linear-gradient(
+    90deg,
+    rgba(var(--color-accent-rgb), 0.1),
+    rgba(var(--color-surface-rgb), 0.6) 60%
+  );
+}
+
+.ranking-none {
+  opacity: 0.5;
+}
+
+.ranking-leader {
+  box-shadow:
+    inset 0 0 20px rgba(var(--color-success-rgb), 0.12),
+    0 0 12px rgba(var(--color-success-rgb), 0.2);
+}
+
+.ranking-pos {
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  min-width: 20px;
+  text-align: center;
+}
+
+.ranking-avatar {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, hsl(var(--hue), 85%, 55%), hsl(var(--hue), 75%, 40%));
+  flex-shrink: 0;
+}
+
+.ranking-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+}
+
+.ranking-pts {
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  color: var(--color-warning);
+  text-shadow: 0 0 8px rgba(var(--color-warning-rgb), 0.3);
+  min-width: 30px;
+  text-align: right;
+}
+
+.ranking-badge {
+  font-size: 0.65rem;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ranking-time {
+  font-family: var(--font-display);
+  font-size: 0.65rem;
+  color: var(--color-text-muted);
+}
+
+/* TransitionGroup move animation */
+.ranking-move {
+  transition: transform 0.4s var(--ease-bounce);
+}
+
+.ranking-enter-active {
+  transition:
+    opacity 0.3s,
+    transform 0.3s var(--ease-bounce);
+}
+
+.ranking-enter-from {
+  opacity: 0;
+  transform: translateX(20px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ranking-move,
+  .ranking-enter-active {
+    transition: none;
+  }
+  .ranking-row {
+    transition: none;
+  }
+}
+
 .sidebar-ticker {
   max-width: none;
   flex-direction: column;
@@ -1602,8 +1959,14 @@ onBeforeUnmount(() => {
 }
 
 .layout-mobile .mystery-orb {
+  width: 170px;
+  height: 170px;
+}
+
+.layout-mobile .mystery-orb .synth-ring-3 {
   width: 180px;
   height: 180px;
+  margin: -90px 0 0 -90px;
 }
 
 .layout-mobile .podium-rank-1 {
