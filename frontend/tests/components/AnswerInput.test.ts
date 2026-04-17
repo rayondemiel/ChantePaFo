@@ -71,7 +71,7 @@ describe('AnswerInput', () => {
     expect(fb.classes()).toContain('anim-correct-pop')
   })
 
-  it('shows "Trouvé !" for title match only', async () => {
+  it('shows "Titre ✓" for title match only', async () => {
     const wrapper = mount(AnswerInput)
     ;(wrapper.vm as unknown as { setResult: (r: FuzzyResult) => void }).setResult({
       title_match: true,
@@ -80,7 +80,7 @@ describe('AnswerInput', () => {
       distance: 1,
     })
     await wrapper.vm.$nextTick()
-    expect(wrapper.get('.feedback-correct').text()).toContain('Trouvé')
+    expect(wrapper.get('.feedback-correct').text()).toContain('Titre')
   })
 
   it('shows "Artiste" for artist match only', async () => {
@@ -110,10 +110,13 @@ describe('AnswerInput', () => {
     expect(fb.classes()).toContain('anim-shake')
   })
 
-  it('clears the feedback after 1500ms', async () => {
+  it('clears bonus flash after 1500ms but keeps persistent feedback', async () => {
     vi.useFakeTimers()
     const wrapper = mount(AnswerInput)
-    ;(wrapper.vm as unknown as { setResult: (r: FuzzyResult) => void }).setResult({
+    const vm = wrapper.vm as unknown as {
+      setResult: (r: FuzzyResult) => void
+    }
+    vm.setResult({
       title_match: true,
       artist_match: true,
       bonus: true,
@@ -121,8 +124,126 @@ describe('AnswerInput', () => {
     })
     await wrapper.vm.$nextTick()
     expect(wrapper.find('.feedback-correct').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Parfait')
     vi.advanceTimersByTime(1500)
     await wrapper.vm.$nextTick()
+    // Bonus persists as persistent feedback (it matched both)
+    expect(wrapper.find('.feedback-correct').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Parfait')
+  })
+
+  it('clears miss feedback after 1500ms', async () => {
+    vi.useFakeTimers()
+    const wrapper = mount(AnswerInput)
+    const vm = wrapper.vm as unknown as {
+      setResult: (r: FuzzyResult) => void
+    }
+    vm.setResult({
+      title_match: false,
+      artist_match: false,
+      bonus: false,
+      distance: 9,
+    })
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.feedback-wrong').exists()).toBe(true)
+    vi.advanceTimersByTime(1500)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.feedback-wrong').exists()).toBe(false)
+  })
+
+  it('partial title match persists after timeout', async () => {
+    vi.useFakeTimers()
+    const wrapper = mount(AnswerInput)
+    const vm = wrapper.vm as unknown as {
+      setResult: (r: FuzzyResult) => void
+    }
+    vm.setResult({
+      title_match: true,
+      artist_match: false,
+      bonus: false,
+      distance: 1,
+    })
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.feedback-correct').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Titre')
+    vi.advanceTimersByTime(2000)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.feedback-correct').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Titre')
+  })
+
+  it('partial artist match persists after timeout', async () => {
+    vi.useFakeTimers()
+    const wrapper = mount(AnswerInput)
+    const vm = wrapper.vm as unknown as {
+      setResult: (r: FuzzyResult) => void
+    }
+    vm.setResult({
+      title_match: false,
+      artist_match: true,
+      bonus: false,
+      distance: 1,
+    })
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.feedback-correct').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Artiste')
+    vi.advanceTimersByTime(2000)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.feedback-correct').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Artiste')
+  })
+
+  it('wrong guess flashes then reverts to persistent partial match', async () => {
+    vi.useFakeTimers()
+    const wrapper = mount(AnswerInput)
+    const vm = wrapper.vm as unknown as {
+      setResult: (r: FuzzyResult) => void
+    }
+    // First: partial title match (persists)
+    vm.setResult({
+      title_match: true,
+      artist_match: false,
+      bonus: false,
+      distance: 1,
+    })
+    await wrapper.vm.$nextTick()
+    expect(wrapper.text()).toContain('Titre')
+
+    // Second: wrong guess (flashes)
+    vm.setResult({
+      title_match: false,
+      artist_match: false,
+      bonus: false,
+      distance: 9,
+    })
+    await wrapper.vm.$nextTick()
+    expect(wrapper.text()).toContain('Rat\u00e9')
+
+    // After 1500ms: reverts to persistent title match
+    vi.advanceTimersByTime(1500)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.feedback-wrong').exists()).toBe(false)
+    expect(wrapper.find('.feedback-correct').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Titre')
+  })
+
+  it('clearResult removes all feedback', async () => {
+    const wrapper = mount(AnswerInput)
+    const vm = wrapper.vm as unknown as {
+      setResult: (r: FuzzyResult) => void
+      clearResult: () => void
+    }
+    vm.setResult({
+      title_match: true,
+      artist_match: false,
+      bonus: false,
+      distance: 1,
+    })
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.feedback-correct').exists()).toBe(true)
+    vm.clearResult()
+    await wrapper.vm.$nextTick()
     expect(wrapper.find('.feedback-correct').exists()).toBe(false)
+    expect(wrapper.find('.feedback-wrong').exists()).toBe(false)
   })
 })

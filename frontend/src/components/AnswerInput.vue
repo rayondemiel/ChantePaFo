@@ -13,15 +13,20 @@
       spellcheck="false"
       @keydown.enter="onSubmit"
     />
-    <div v-if="feedback" :key="feedbackKey" class="feedback-slot">
-      <span :class="feedback.cls">{{ feedback.label }}</span>
+    <div v-if="displayFeedback" :key="feedbackKey" class="feedback-slot">
+      <span :class="displayFeedback.cls">{{ displayFeedback.label }}</span>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import type { FuzzyResult } from '../types'
+
+interface Feedback {
+  label: string
+  cls: string
+}
 
 withDefaults(
   defineProps<{
@@ -40,9 +45,12 @@ const emit = defineEmits<{
 
 const inputRef = ref<HTMLInputElement | null>(null)
 const text = ref('')
-const feedback = ref<{ label: string; cls: string } | null>(null)
+const persistentFeedback = ref<Feedback | null>(null)
+const flashFeedback = ref<Feedback | null>(null)
 const feedbackKey = ref(0)
 let clearHandle: ReturnType<typeof setTimeout> | null = null
+
+const displayFeedback = computed(() => flashFeedback.value ?? persistentFeedback.value)
 
 function onSubmit() {
   const trimmed = text.value.trim()
@@ -51,28 +59,51 @@ function onSubmit() {
   text.value = ''
 }
 
+function resultToFeedback(result: FuzzyResult): Feedback {
+  if (result.bonus) {
+    return { label: 'Parfait !', cls: 'feedback-correct anim-correct-pop' }
+  } else if (result.title_match) {
+    return { label: 'Titre \u2713', cls: 'feedback-correct anim-correct-pop' }
+  } else if (result.artist_match) {
+    return { label: 'Artiste \u2713', cls: 'feedback-correct feedback-soft' }
+  }
+  return { label: 'Rat\u00e9...', cls: 'feedback-wrong anim-shake' }
+}
+
 function setResult(result: FuzzyResult) {
   if (clearHandle) {
     clearTimeout(clearHandle)
     clearHandle = null
   }
-  if (result.bonus) {
-    feedback.value = { label: 'Parfait !', cls: 'feedback-correct anim-correct-pop' }
-  } else if (result.title_match) {
-    feedback.value = { label: 'Trouvé !', cls: 'feedback-correct anim-correct-pop' }
-  } else if (result.artist_match) {
-    feedback.value = { label: 'Artiste ✓', cls: 'feedback-correct feedback-soft' }
-  } else {
-    feedback.value = { label: 'Raté...', cls: 'feedback-wrong anim-shake' }
+
+  const fb = resultToFeedback(result)
+
+  if (result.bonus || result.title_match || result.artist_match) {
+    persistentFeedback.value = fb
   }
-  feedbackKey.value += 1
-  clearHandle = setTimeout(() => {
-    feedback.value = null
-    clearHandle = null
-  }, 1500)
+
+  if (result.bonus || (!result.title_match && !result.artist_match)) {
+    flashFeedback.value = fb
+    feedbackKey.value += 1
+    clearHandle = setTimeout(() => {
+      flashFeedback.value = null
+      clearHandle = null
+    }, 1500)
+  } else {
+    feedbackKey.value += 1
+  }
 }
 
-defineExpose({ setResult })
+function clearResult() {
+  persistentFeedback.value = null
+  flashFeedback.value = null
+  if (clearHandle) {
+    clearTimeout(clearHandle)
+    clearHandle = null
+  }
+}
+
+defineExpose({ setResult, clearResult })
 
 onMounted(() => {
   inputRef.value?.focus()
@@ -90,6 +121,28 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: stretch;
   gap: var(--space-sm);
+  position: relative;
+}
+
+.answer-input-wrap::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--color-primary), var(--color-accent));
+  box-shadow: 0 0 8px rgba(var(--color-primary-rgb), 0.4);
+  transition:
+    width 0.3s var(--ease-smooth),
+    left 0.3s var(--ease-smooth);
+  pointer-events: none;
+  border-radius: 1px;
+}
+
+.answer-input-wrap:focus-within::after {
+  width: 100%;
+  left: 0;
 }
 
 .input-answer {
@@ -135,5 +188,12 @@ onBeforeUnmount(() => {
 .input-answer:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+@media (min-width: 900px) {
+  .input-answer {
+    font-size: var(--text-xl);
+    min-height: 52px;
+  }
 }
 </style>
