@@ -1,4 +1,8 @@
+import sys
+from pathlib import Path
+
 from pydantic import Field, field_validator
+from pydantic import ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _FORBIDDEN_SECRETS = {
@@ -70,4 +74,21 @@ class Settings(BaseSettings):
         return v
 
 
-settings = Settings()  # type: ignore[call-arg]
+try:
+    settings = Settings()  # type: ignore[call-arg]
+except ValidationError as e:
+    _env_file = Path(__file__).resolve().parent.parent / ".env"
+    if not _env_file.exists():
+        print(
+            f"\n\033[1;31mERROR: .env file not found at {_env_file}\033[0m\n"
+            f"Copy the example and fill in the values:\n"
+            f"  cp .env.example .env\n",
+            file=sys.stderr,
+        )
+    else:
+        print(
+            f"\n\033[1;31mERROR: Invalid configuration in {_env_file}\033[0m\n"
+            f"{e}\n",
+            file=sys.stderr,
+        )
+    sys.exit(1)
