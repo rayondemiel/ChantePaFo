@@ -139,15 +139,15 @@ describe('BlindtestRound', () => {
     expect((input.element as HTMLInputElement).disabled).toBe(false)
   })
 
-  it('renders live ranking in sidebar during playing phase on desktop', async () => {
+  it('renders score total in sidebar during playing phase on desktop', async () => {
     const { wrapper } = await setup({
       phase: 'playing',
       track: { preview_url: 'http://x/y.mp3', genre: 'pop' },
       total_scores: { u1: 5, u2: 3 },
     })
-    const ranking = wrapper.find('.live-ranking')
-    expect(ranking.exists()).toBe(true)
-    const rows = wrapper.findAll('.ranking-row')
+    const scoreboard = wrapper.findComponent({ name: 'ScoreBoard' })
+    expect(scoreboard.exists()).toBe(true)
+    const rows = wrapper.findAll('.score-row')
     expect(rows.length).toBe(2)
   })
 
@@ -619,11 +619,12 @@ describe('BlindtestRound', () => {
     handler({ player_id: 'u2', time_ms: 3200, match_type: 'title' })
     await flushPromises()
 
+    const ranking = wrapper.find('.live-ranking')
+    expect(ranking.exists()).toBe(true)
     const rows = wrapper.findAll('.ranking-row')
-    expect(rows.length).toBe(2)
-    const bobRow = rows.find((r) => r.text().includes('Bob'))
-    expect(bobRow).toBeDefined()
-    expect(bobRow!.classes()).toContain('ranking-partial')
+    expect(rows.length).toBe(1)
+    expect(rows[0].text()).toContain('Bob')
+    expect(rows[0].classes()).toContain('ranking-partial')
   })
 
   it('upgrades match status in live ranking when player sends bonus', async () => {

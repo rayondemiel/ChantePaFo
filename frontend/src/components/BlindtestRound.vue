@@ -242,45 +242,38 @@
 
       <!-- Desktop sidebar -->
       <aside v-if="!isMobile && phase !== 'countdown' && phase !== 'finished'" class="sidebar">
-        <!-- Live ranking (current round only, during playing) -->
-        <div v-if="phase === 'playing'" class="sidebar-section">
+        <!-- Total scores (always visible, top) -->
+        <div class="sidebar-section">
+          <h3 class="sidebar-heading text-display">Score total</h3>
+          <ScoreBoard :scores="totalScores" :players="playerMap" class="scoreboard-sidebar" />
+        </div>
+
+        <!-- Live ranking — only shows players who found something (below scores) -->
+        <div v-if="phase === 'playing' && liveRankingFound.length > 0" class="sidebar-section">
           <h3 class="sidebar-heading text-display">Manche en cours</h3>
           <ol class="live-ranking" aria-label="Classement en direct">
             <TransitionGroup name="ranking">
               <li
-                v-for="(entry, idx) in liveRanking"
+                v-for="(entry, idx) in liveRankingFound"
                 :key="entry.player_id"
                 class="ranking-row"
                 :class="{
                   'ranking-bonus': entry.match_type === 'bonus',
                   'ranking-partial': entry.match_type === 'title' || entry.match_type === 'artist',
-                  'ranking-none': !entry.match_type,
-                  'ranking-leader': idx === 0 && !!entry.match_type,
+                  'ranking-leader': idx === 0,
                 }"
                 :style="{ '--hue': getPlayerHue(entry.player_id) }"
               >
                 <span class="ranking-pos">{{ idx + 1 }}</span>
                 <span class="ranking-avatar" aria-hidden="true"></span>
                 <span class="ranking-name">{{ entry.name }}</span>
-                <span
-                  v-if="entry.match_type"
-                  class="ranking-badge"
-                  :class="'match-' + entry.match_type"
-                >
+                <span class="ranking-badge" :class="'match-' + entry.match_type">
                   {{ matchLabel(entry.match_type) }}
                 </span>
-                <span v-if="entry.time_ms != null" class="ranking-time">{{
-                  formatTime(entry.time_ms)
-                }}</span>
+                <span class="ranking-time">{{ formatTime(entry.time_ms) }}</span>
               </li>
             </TransitionGroup>
           </ol>
-        </div>
-
-        <!-- Total scores (always visible, all phases) -->
-        <div class="sidebar-section">
-          <h3 class="sidebar-heading text-display">Score total</h3>
-          <ScoreBoard :scores="totalScores" :players="playerMap" class="scoreboard-sidebar" />
         </div>
       </aside>
     </div>
@@ -445,29 +438,23 @@ interface RankingEntry {
   time_ms: number | null
 }
 
-const liveRanking = computed<RankingEntry[]>(() => {
-  const players = roomStore.room?.players ?? []
-  const foundMap = new Map(liveFound.value.map((f) => [f.player_id, f]))
+const liveRankingFound = computed<RankingEntry[]>(() => {
   const typePriority: Record<string, number> = { bonus: 0, title: 1, artist: 1 }
+  const playerNames = new Map((roomStore.room?.players ?? []).map((p) => [p.id, p.name]))
 
-  return players
-    .map((p) => {
-      const found = foundMap.get(p.id)
-      return {
-        player_id: p.id,
-        name: p.name,
-        match_type: found?.match_type ?? null,
-        time_ms: found?.time_ms ?? null,
-      }
-    })
+  return liveFound.value
+    .map((f) => ({
+      player_id: f.player_id,
+      name: playerNames.get(f.player_id) ?? f.name,
+      match_type: f.match_type as string | null,
+      time_ms: f.time_ms as number | null,
+    }))
     .sort((a, b) => {
       const pa = a.match_type ? (typePriority[a.match_type] ?? 2) : 3
       const pb = b.match_type ? (typePriority[b.match_type] ?? 2) : 3
       if (pa !== pb) return pa - pb
       if (a.time_ms != null && b.time_ms != null) return a.time_ms - b.time_ms
-      if (a.time_ms != null) return -1
-      if (b.time_ms != null) return 1
-      return (totalScores.value[b.player_id] ?? 0) - (totalScores.value[a.player_id] ?? 0)
+      return 0
     })
 })
 
