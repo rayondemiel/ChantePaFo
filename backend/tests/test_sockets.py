@@ -889,6 +889,146 @@ async def test_game_event_result_not_enriched_on_partial_match(sio_env):
     assert "cover_url" not in payload
 
 
+async def test_player_match_emitted_on_bonus_match_with_type_bonus(sio_env):
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+    await _start_game_mocked(sio_env, code)
+
+    await sio_env["handlers"]["game_event"](
+        "sid-1", {"code": code, "event_type": "countdown_done", "payload": {}}
+    )
+    app.sockets.handlers._cancel_round_timer(code)
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["game_event"](
+        "sid-1",
+        {
+            "code": code,
+            "event_type": "answer",
+            "payload": {"text": "Song0 Artist0", "time_ms": 1500},
+        },
+    )
+
+    match_events = [e for e in sio_env["emitted"] if e["event"] == "player_match"]
+    assert len(match_events) == 1
+    assert match_events[0].get("room") == code
+    assert "to" not in match_events[0]
+    assert match_events[0]["data"]["player_id"] == "test-user-1"
+    assert match_events[0]["data"]["time_ms"] == 1500
+    assert match_events[0]["data"]["match_type"] == "bonus"
+
+
+async def test_player_match_emitted_on_title_only_match(sio_env):
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+    await _start_game_mocked(sio_env, code)
+
+    await sio_env["handlers"]["game_event"](
+        "sid-1", {"code": code, "event_type": "countdown_done", "payload": {}}
+    )
+    app.sockets.handlers._cancel_round_timer(code)
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["game_event"](
+        "sid-1",
+        {
+            "code": code,
+            "event_type": "answer",
+            "payload": {"text": "Song0", "time_ms": 1500},
+        },
+    )
+
+    match_events = [e for e in sio_env["emitted"] if e["event"] == "player_match"]
+    assert len(match_events) == 1
+    assert match_events[0]["data"]["match_type"] == "title"
+    assert match_events[0]["data"]["player_id"] == "test-user-1"
+
+
+async def test_player_match_emitted_on_artist_only_match(sio_env):
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+    await _start_game_mocked(sio_env, code)
+
+    await sio_env["handlers"]["game_event"](
+        "sid-1", {"code": code, "event_type": "countdown_done", "payload": {}}
+    )
+    app.sockets.handlers._cancel_round_timer(code)
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["game_event"](
+        "sid-1",
+        {
+            "code": code,
+            "event_type": "answer",
+            "payload": {"text": "Artist0", "time_ms": 2000},
+        },
+    )
+
+    match_events = [e for e in sio_env["emitted"] if e["event"] == "player_match"]
+    assert len(match_events) == 1
+    assert match_events[0]["data"]["match_type"] == "artist"
+    assert match_events[0]["data"]["player_id"] == "test-user-1"
+
+
+async def test_player_match_not_emitted_when_no_match(sio_env):
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+    await _start_game_mocked(sio_env, code)
+
+    await sio_env["handlers"]["game_event"](
+        "sid-1", {"code": code, "event_type": "countdown_done", "payload": {}}
+    )
+    app.sockets.handlers._cancel_round_timer(code)
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["game_event"](
+        "sid-1",
+        {
+            "code": code,
+            "event_type": "answer",
+            "payload": {"text": "bananas", "time_ms": 1500},
+        },
+    )
+
+    match_events = [e for e in sio_env["emitted"] if e["event"] == "player_match"]
+    assert match_events == []
+
+
+async def test_player_match_payload_has_no_leak(sio_env):
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+    await _start_game_mocked(sio_env, code)
+
+    game_session = app.sockets.handlers._active_sessions[code]
+    assert isinstance(game_session.mode, app.sockets.handlers.BlindtestMode)
+    game_session.mode.tracks[0]["cover_url"] = "https://cdn/song0.jpg"
+
+    await sio_env["handlers"]["game_event"](
+        "sid-1", {"code": code, "event_type": "countdown_done", "payload": {}}
+    )
+    app.sockets.handlers._cancel_round_timer(code)
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["game_event"](
+        "sid-1",
+        {
+            "code": code,
+            "event_type": "answer",
+            "payload": {"text": "Song0 Artist0", "time_ms": 1500},
+        },
+    )
+
+    match_events = [e for e in sio_env["emitted"] if e["event"] == "player_match"]
+    assert len(match_events) == 1
+    payload = match_events[0]["data"]
+    assert set(payload.keys()) == {"player_id", "time_ms", "match_type"}
+    assert "correct_title" not in payload
+    assert "correct_artist" not in payload
+    assert "cover_url" not in payload
+    assert "title" not in payload
+    assert "artist" not in payload
+
+
 async def test_game_event_unknown_session(sio_env):
     """Sending game_event for a room with no active session emits an error."""
     await _connect(sio_env)
@@ -1269,6 +1409,153 @@ async def test_start_game_cancels_existing_timer(sio_env, monkeypatch):
     # since the new game is still in countdown).
     await asyncio.sleep(0)
     assert first_timer.cancelled() or first_timer.done()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# leave_game
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+async def test_leave_game_removes_player_from_room(sio_env):
+    """emit leave_game → sid leaves room, left_game emitted to sid, player_left broadcast."""
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+    await _start_game_mocked(sio_env, code)
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["leave_game"]("sid-1", {"code": code})
+
+    left_events = [e for e in sio_env["emitted"] if e["event"] == "left_game"]
+    assert len(left_events) == 1
+    assert left_events[0].get("to") == "sid-1"
+
+    player_left_events = [e for e in sio_env["emitted"] if e["event"] == "player_left"]
+    assert len(player_left_events) == 1
+    assert player_left_events[0]["data"]["player_id"] == "test-user-1"
+    assert player_left_events[0]["data"]["name"] == "alice"
+
+    # sid left the socketio room
+    assert code not in sio_env["rooms_map"].get("sid-1", set())
+
+
+async def test_leave_game_last_player_cleans_up(sio_env):
+    """When the last player leaves, the game session and timer are cleaned up."""
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+    await _start_game_mocked(sio_env, code)
+
+    assert code in app.sockets.handlers._active_sessions
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["leave_game"]("sid-1", {"code": code})
+
+    assert code not in app.sockets.handlers._active_sessions
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# return_to_lobby
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+async def test_return_to_lobby_sets_room_status_lobby(sio_env):
+    """Host emits return_to_lobby → status set to lobby, returned_to_lobby broadcast."""
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+    await _start_game_mocked(sio_env, code)
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["return_to_lobby"]("sid-1", {"code": code})
+
+    returned_events = [e for e in sio_env["emitted"] if e["event"] == "returned_to_lobby"]
+    assert len(returned_events) == 1
+    assert returned_events[0]["data"]["code"] == code
+
+    ambiance_events = [e for e in sio_env["emitted"] if e["event"] == "ambiance_update"]
+    assert len(ambiance_events) >= 1
+
+    # Room status back to lobby
+    svc = RoomService(sio_env["redis"])
+    room = await svc.get_room(code)
+    assert room is not None
+    assert room["status"] == "lobby"
+
+    # Session cleaned up
+    assert code not in app.sockets.handlers._active_sessions
+
+
+async def test_return_to_lobby_rejected_for_non_host(sio_env):
+    """Non-host cannot return the room to lobby."""
+    svc = RoomService(sio_env["redis"])
+    room = await svc.create_room(host_id="other-user", host_name="Bob")
+    code = room["code"]
+
+    await _connect(sio_env)
+    await sio_env["handlers"]["join_room"]("sid-1", {"code": code})
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["return_to_lobby"]("sid-1", {"code": code})
+
+    errors = [e for e in sio_env["emitted"] if e["event"] == "error"]
+    assert any("host" in (e["data"] or {}).get("message", "").lower() for e in errors)
+
+    returned_events = [e for e in sio_env["emitted"] if e["event"] == "returned_to_lobby"]
+    assert len(returned_events) == 0
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# replay_game
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+async def test_replay_game_starts_new_session(sio_env):
+    """Host emits replay_game → new game_state broadcast with phase=countdown."""
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+    await _start_game_mocked(sio_env, code)
+
+    # Force the game to finished phase
+    game_session = app.sockets.handlers._active_sessions[code]
+    game_session.mode.state["phase"] = "finished"
+
+    sio_env["emitted"].clear()
+    with patch("app.sockets.handlers.DeezerClient") as MockDeezer:
+        mock_instance = AsyncMock()
+        mock_instance.get_random_tracks = AsyncMock(return_value=_FAKE_TRACKS)
+        MockDeezer.return_value = mock_instance
+        await sio_env["handlers"]["replay_game"]("sid-1", {"code": code})
+
+    state_events = [e for e in sio_env["emitted"] if e["event"] == "game_state"]
+    assert len(state_events) == 1
+    assert state_events[0]["data"]["phase"] == "countdown"
+
+    # A new session is created
+    assert code in app.sockets.handlers._active_sessions
+
+    ambiance_events = [e for e in sio_env["emitted"] if e["event"] == "ambiance_update"]
+    assert len(ambiance_events) >= 1
+
+
+async def test_replay_game_rejected_for_non_host(sio_env):
+    """Non-host cannot replay the game."""
+    svc = RoomService(sio_env["redis"])
+    room = await svc.create_room(host_id="other-user", host_name="Bob")
+    code = room["code"]
+
+    await _connect(sio_env)
+    await sio_env["handlers"]["join_room"]("sid-1", {"code": code})
+
+    sio_env["emitted"].clear()
+    with patch("app.sockets.handlers.DeezerClient") as MockDeezer:
+        mock_instance = AsyncMock()
+        mock_instance.get_random_tracks = AsyncMock(return_value=_FAKE_TRACKS)
+        MockDeezer.return_value = mock_instance
+        await sio_env["handlers"]["replay_game"]("sid-1", {"code": code})
+
+    errors = [e for e in sio_env["emitted"] if e["event"] == "error"]
+    assert any("host" in (e["data"] or {}).get("message", "").lower() for e in errors)
+
+    state_events = [e for e in sio_env["emitted"] if e["event"] == "game_state"]
+    assert len(state_events) == 0
 
 
 async def test_game_event_finish_race_condition_no_double_end(sio_env, monkeypatch):

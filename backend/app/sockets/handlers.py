@@ -50,6 +50,8 @@ _ERR_HOST_ONLY_SETTINGS = "Only the host can update settings"
 _ERR_HOST_ONLY_START = "Only the host can start the game"
 _ERR_NO_ACTIVE_SESSION = "No active game session for this room"
 _ERR_KICKED = "You have been removed from this room"
+_ERR_HOST_ONLY_LOBBY = "Only the host can return to lobby"
+_ERR_HOST_ONLY_REPLAY = "Only the host can replay"
 
 
 def _kicked_key(code: str, user_id: str) -> str:
@@ -108,7 +110,7 @@ async def _run_round_timeline(code: str, game_session: GameSession) -> None:
         return
 
     try:
-        extract_duration = int(mode.state.get("extract_duration", 20))
+        extract_duration = int(mode.state.get("extract_duration", 30))
         playing_duration = max(extract_duration - _REVEAL_DURATION_SECONDS, 0)
 
         while True:
@@ -384,18 +386,30 @@ async def _handle_game_event(sid: str, data: object) -> None:
 
     result = await game_session.handle_event(payload.event_type, user_id, payload.payload)
     if result is not None:
-        if (
-            payload.event_type == "answer"
-            and isinstance(game_session.mode, BlindtestMode)
-            and result.get("bonus") is True
-        ):
-            mode = game_session.mode
-            round_idx = int(mode.state.get("current_round", 0))
-            if 0 <= round_idx < len(mode.tracks):
-                track = mode.tracks[round_idx]
-                result["correct_title"] = track["title"]
-                result["correct_artist"] = track["artist"]
-                result["cover_url"] = track.get("cover_url", "")
+        if payload.event_type == "answer" and isinstance(game_session.mode, BlindtestMode):
+            if result.get("title_match") or result.get("artist_match"):
+                match_type = (
+                    "bonus"
+                    if result.get("bonus")
+                    else ("title" if result.get("title_match") else "artist")
+                )
+                await sio.emit(
+                    "player_match",
+                    {
+                        "player_id": user_id,
+                        "time_ms": result.get("time_ms", 0),
+                        "match_type": match_type,
+                    },
+                    room=payload.code,
+                )
+            if result.get("bonus") is True:
+                mode = game_session.mode
+                round_idx = int(mode.state.get("current_round", 0))
+                if 0 <= round_idx < len(mode.tracks):
+                    track = mode.tracks[round_idx]
+                    result["correct_title"] = track["title"]
+                    result["correct_artist"] = track["artist"]
+                    result["cover_url"] = track.get("cover_url", "")
         await sio.emit("game_event_result", result, to=sid)
 
     state = game_session.get_state()
@@ -583,6 +597,134 @@ async def _handle_kick_player(sid: str, data: object) -> None:
     )
 
 
+async def _handle_leave_game(sid: str, data: object) -> None:
+    SOCKETIO_EVENTS_TOTAL.labels(event="leave_game").inc()
+    try:
+        payload = JoinRoomPayload.model_validate(data)
+    except ValidationError:
+        await sio.emit("error", {"message": "Invalid leave_game payload"}, to=sid)
+        return
+
+    sio_session = await sio.get_session(sid)
+    user_id: str = sio_session["user_id"]
+    username: str = sio_session.get("username", user_id)
+
+    if payload.code not in sio.rooms(sid):
+        await sio.emit("error", {"message": _ERR_NOT_IN_ROOM}, to=sid)
+        return
+
+    await sio.leave_room(sid, payload.code)
+
+    redis = get_redis()
+    await cast("Any", redis.srem(_room_sids_key(payload.code), sid))
+    await redis.delete(f"player_room:{sid}")
+
+    await sio.emit(
+        "player_left",
+        {"player_id": user_id, "name": username},
+        room=payload.code,
+    )
+    await sio.emit("left_game", {}, to=sid)
+
+    svc = RoomService(redis)
+    await svc.leave_room(payload.code, user_id)
+
+    # If no players remain, clean up game session and room
+    room_after = await svc.get_room(payload.code)
+    if not room_after or not room_after.get("players"):
+        session = _active_sessions.pop(payload.code, None)
+        if session is not None:
+            _cancel_round_timer(payload.code)
+            logger.info("game session cleaned up (last player left) room=%s", payload.code)
+
+    logger.info("player left game sid=%s room=%s user=%s", sid, payload.code, user_id)
+
+
+async def _handle_return_to_lobby(sid: str, data: object) -> None:
+    SOCKETIO_EVENTS_TOTAL.labels(event="return_to_lobby").inc()
+    try:
+        payload = JoinRoomPayload.model_validate(data)
+    except ValidationError:
+        await sio.emit("error", {"message": "Invalid return_to_lobby payload"}, to=sid)
+        return
+
+    sio_session = await sio.get_session(sid)
+    user_id: str = sio_session["user_id"]
+
+    if payload.code not in sio.rooms(sid):
+        await sio.emit("error", {"message": _ERR_NOT_IN_ROOM}, to=sid)
+        return
+
+    redis = get_redis()
+    svc = RoomService(redis)
+    room = await svc.get_room(payload.code)
+    if room is None:
+        await sio.emit("error", {"message": _ERR_ROOM_NOT_FOUND}, to=sid)
+        return
+    if room["host_id"] != user_id:
+        await sio.emit("error", {"message": _ERR_HOST_ONLY_LOBBY}, to=sid)
+        return
+
+    _active_sessions.pop(payload.code, None)
+    _cancel_round_timer(payload.code)
+
+    await svc.set_status(payload.code, "lobby")
+    await sio.emit("returned_to_lobby", {"code": payload.code}, room=payload.code)
+    await sio.emit("ambiance_update", get_ambiance_for_moment("lobby"), room=payload.code)
+    logger.info("return_to_lobby room=%s by=%s", payload.code, user_id)
+
+
+async def _handle_replay_game(sid: str, data: object) -> None:
+    SOCKETIO_EVENTS_TOTAL.labels(event="replay_game").inc()
+    try:
+        payload = JoinRoomPayload.model_validate(data)
+    except ValidationError:
+        await sio.emit("error", {"message": "Invalid replay_game payload"}, to=sid)
+        return
+
+    sio_session = await sio.get_session(sid)
+    user_id: str = sio_session["user_id"]
+
+    if payload.code not in sio.rooms(sid):
+        await sio.emit("error", {"message": _ERR_NOT_IN_ROOM}, to=sid)
+        return
+
+    redis = get_redis()
+    svc = RoomService(redis)
+    room = await svc.get_room(payload.code)
+    if room is None:
+        await sio.emit("error", {"message": _ERR_ROOM_NOT_FOUND}, to=sid)
+        return
+    if room["host_id"] != user_id:
+        await sio.emit("error", {"message": _ERR_HOST_ONLY_REPLAY}, to=sid)
+        return
+
+    _active_sessions.pop(payload.code, None)
+    _cancel_round_timer(payload.code)
+
+    mode_name: str = room.get("settings", {}).get("game_mode", "blindtest")
+    try:
+        mode = registry.create(mode_name)
+    except KeyError:
+        await sio.emit("error", {"message": f"Unknown game mode: {mode_name}"}, to=sid)
+        return
+
+    game_session = GameSession(mode)
+    _active_sessions[payload.code] = game_session
+
+    await game_session.start(
+        players=room["players"],
+        settings=room["settings"],
+        track_provider=DeezerClient(),
+    )
+
+    await svc.set_status(payload.code, "playing")
+    state = game_session.get_state()
+    await sio.emit("game_state", state, room=payload.code)
+    await sio.emit("ambiance_update", get_ambiance_for_moment("countdown"), room=payload.code)
+    logger.info("replay_game room=%s mode=%s by=%s", payload.code, mode_name, user_id)
+
+
 def register_handlers() -> None:
     sio.on("connect", handler=_handle_connect)
     sio.on("disconnect", handler=_handle_disconnect)
@@ -594,3 +736,6 @@ def register_handlers() -> None:
     sio.on("reaction", handler=_handle_reaction)
     sio.on("soundboard", handler=_handle_soundboard)
     sio.on("kick_player", handler=_handle_kick_player)
+    sio.on("leave_game", handler=_handle_leave_game)
+    sio.on("return_to_lobby", handler=_handle_return_to_lobby)
+    sio.on("replay_game", handler=_handle_replay_game)
