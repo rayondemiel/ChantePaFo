@@ -4,7 +4,7 @@
       <p>Chargement...</p>
     </div>
     <template v-else>
-      <div class="zone-info">
+      <div v-if="gameStore.state.phase !== 'finished'" class="zone-info">
         <div class="zone-info-main">
           <span class="text-display">{{ phaseName }}</span>
           <span v-if="gameStore.state.current_round !== undefined" class="round-info">
@@ -12,28 +12,46 @@
             {{ gameStore.state.total_rounds }}
           </span>
         </div>
-        <VolumeControl v-if="gameStore.state.phase !== 'countdown'" class="zone-info-volume" />
+        <div class="zone-info-actions">
+          <VolumeControl v-if="gameStore.state.phase !== 'countdown'" class="zone-info-volume" />
+          <button
+            type="button"
+            class="btn-quit"
+            data-test="quit-game"
+            aria-label="Quitter la partie"
+            @click="confirmQuitOpen = true"
+          >
+            <span class="btn-quit-icon" aria-hidden="true">&#x2715;</span>
+          </button>
+        </div>
       </div>
+
+      <!-- Scanlines overlay -->
+      <div class="ambient-scanlines" aria-hidden="true"></div>
+      <!-- Floating orbs -->
+      <div class="ambient-orb ambient-orb-1" aria-hidden="true"></div>
+      <div class="ambient-orb ambient-orb-2" aria-hidden="true"></div>
 
       <div class="zone-content">
         <BlindtestRound v-if="gameMode === 'blindtest'" />
         <p v-else class="phase-label">{{ gameStore.state.phase }}</p>
       </div>
-
-      <div v-if="gameStore.awards.length > 0" class="zone-actions">
-        <h2 class="text-display">Awards</h2>
-        <div v-for="award in gameStore.awards" :key="award.id" class="award-card anim-award-pop">
-          <span class="award-emoji">{{ award.emoji }}</span>
-          <span class="award-title">{{ award.title }}</span>
-          <span class="award-detail">{{ award.detail }}</span>
-        </div>
-      </div>
     </template>
+
+    <ConfirmDialog
+      :open="confirmQuitOpen"
+      title="Quitter la partie ?"
+      message="Tu vas quitter la partie en cours. Les autres joueurs continueront sans toi."
+      confirm-text="Quitter"
+      variant="danger"
+      @confirm="onConfirmQuit"
+      @cancel="confirmQuitOpen = false"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useGameStore } from '../stores/game'
@@ -41,16 +59,19 @@ import { useRoomStore } from '../stores/room'
 import { useAmbianceStore } from '../stores/ambiance'
 import { useSocket } from '../composables/useSocket'
 import BlindtestRound from '../components/BlindtestRound.vue'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
 import VolumeControl from '../components/VolumeControl.vue'
 import type { GameState, AmbianceConfig, Award } from '../types'
 
-defineProps<{ code: string }>()
+const props = defineProps<{ code: string }>()
 const router = useRouter()
 const auth = useAuthStore()
 const gameStore = useGameStore()
 const roomStore = useRoomStore()
 const ambianceStore = useAmbianceStore()
-const { connect: socketConnect, on, off } = useSocket()
+const { connect: socketConnect, emit: socketEmit, on, off } = useSocket()
+
+const confirmQuitOpen = ref(false)
 
 const gameMode = computed(() => roomStore.room?.settings.game_mode)
 
@@ -60,7 +81,7 @@ const phaseName = computed(() => {
     countdown: 'Prêt ?',
     playing: 'À toi de jouer !',
     round_result: 'Résultats',
-    finished: 'Terminé !',
+    finished: 'Résultats',
     listening: 'Écoute...',
     recording: 'Enregistre !',
     guessing: 'Devine !',
@@ -84,10 +105,23 @@ function onAmbiance(data: unknown) {
   ambianceStore.setAmbiance(data as AmbianceConfig)
 }
 
+function onLeftGame() {
+  gameStore.reset()
+  router.push('/')
+}
+
+function onReturnedToLobby(data: unknown) {
+  const d = data as { code: string }
+  gameStore.reset()
+  router.push(`/${d.code ?? props.code}`)
+}
+
+function onConfirmQuit() {
+  confirmQuitOpen.value = false
+  socketEmit('leave_game', { code: roomStore.room?.code ?? props.code })
+}
+
 onMounted(() => {
-  // Deep-link guard: a direct navigation to /:code/play without going through
-  // the lobby leaves the socket singleton uninitialized. Ensure we're
-  // authenticated and connected before subscribing to events.
   if (!auth.token) {
     router.replace('/')
     return
@@ -96,20 +130,26 @@ onMounted(() => {
   on('game_state', onGameState)
   on('game_ended', onGameEnded)
   on('ambiance_update', onAmbiance)
+  on('left_game', onLeftGame)
+  on('returned_to_lobby', onReturnedToLobby)
 })
 
 onUnmounted(() => {
   off('game_state', onGameState)
   off('game_ended', onGameEnded)
   off('ambiance_update', onAmbiance)
+  off('left_game', onLeftGame)
+  off('returned_to_lobby', onReturnedToLobby)
 })
 </script>
 
 <style scoped>
 .game-view {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  overflow: hidden;
 }
 .waiting {
   display: flex;
@@ -119,11 +159,21 @@ onUnmounted(() => {
   color: var(--color-text-muted);
 }
 .zone-info {
+  position: sticky;
+  top: 0;
+  z-index: 10;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-md);
   padding: var(--space-md);
+  background: linear-gradient(
+    180deg,
+    rgba(var(--color-bg-rgb), 0.97),
+    rgba(var(--color-bg-rgb), 0.85)
+  );
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--color-border);
 }
 .zone-info-main {
   display: flex;
@@ -131,8 +181,42 @@ onUnmounted(() => {
   gap: var(--space-xs);
   min-width: 0;
 }
+.zone-info-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-shrink: 0;
+}
 .zone-info-volume {
   flex-shrink: 0;
+}
+.btn-quit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(var(--color-error-rgb), 0.3);
+  border-radius: var(--radius-full);
+  background: rgba(var(--color-error-rgb), 0.08);
+  color: var(--color-error);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    transform 0.1s;
+}
+.btn-quit:hover {
+  background: rgba(var(--color-error-rgb), 0.18);
+  border-color: rgba(var(--color-error-rgb), 0.5);
+  transform: scale(1.05);
+}
+.btn-quit:active {
+  transform: scale(0.95);
+}
+.btn-quit-icon {
+  line-height: 1;
 }
 .round-info {
   color: var(--color-text-muted);
@@ -144,23 +228,81 @@ onUnmounted(() => {
   font-size: var(--text-xl);
   text-align: center;
 }
-.award-card {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-sm) var(--space-md);
-  background: var(--color-surface);
-  border-radius: var(--radius-md);
-  margin-bottom: var(--space-sm);
+
+/* === Ambient background effects === */
+.ambient-scanlines {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(var(--color-white-rgb), 0.015) 2px,
+    rgba(var(--color-white-rgb), 0.015) 4px
+  );
+  mix-blend-mode: overlay;
+  opacity: 0.5;
 }
-.award-emoji {
-  font-size: 1.5rem;
+
+.ambient-orb {
+  position: fixed;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
 }
-.award-title {
-  font-weight: 700;
+
+.ambient-orb-1 {
+  top: 15%;
+  left: 10%;
+  width: 180px;
+  height: 180px;
+  background: var(--ambiance-color-1);
+  filter: blur(90px);
+  opacity: calc(var(--ambiance-intensity) * 0.35);
+  animation: ambient-drift-1 20s ease-in-out infinite alternate;
 }
-.award-detail {
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
+
+.ambient-orb-2 {
+  bottom: 20%;
+  right: 10%;
+  width: 140px;
+  height: 140px;
+  background: var(--ambiance-color-2);
+  filter: blur(70px);
+  opacity: calc(var(--ambiance-intensity) * 0.25);
+  animation: ambient-drift-2 25s ease-in-out infinite alternate;
+}
+
+.zone-content {
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+}
+
+@keyframes ambient-drift-1 {
+  0% {
+    transform: translate(0, 0);
+  }
+  100% {
+    transform: translate(30px, 20px);
+  }
+}
+
+@keyframes ambient-drift-2 {
+  0% {
+    transform: translate(0, 0);
+  }
+  100% {
+    transform: translate(-25px, -15px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ambient-orb-1,
+  .ambient-orb-2 {
+    animation: none;
+  }
 }
 </style>

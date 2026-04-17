@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { createPinia, setActivePinia } from 'pinia'
 import GameView from '../../src/views/GameView.vue'
 import { useAuthStore } from '../../src/stores/auth'
 import { useGameStore } from '../../src/stores/game'
+import { useRoomStore } from '../../src/stores/room'
 
 const socketMock = {
   connect: vi.fn(),
@@ -17,14 +18,36 @@ vi.mock('../../src/composables/useSocket', () => ({
   useSocket: () => socketMock,
 }))
 
-// Give jsdom a minimal matchMedia before any component that uses
-// useBreakpoint (provided in App.vue normally) mounts.
-
-async function mountGame() {
+async function mountGame(opts?: { authenticated?: boolean; withRoom?: boolean }) {
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  if (opts?.authenticated) {
+    const auth = useAuthStore()
+    auth.setAuth({ token: 't', username: 'alice', user_id: 'u1' })
+  }
+  if (opts?.withRoom) {
+    const room = useRoomStore()
+    room.setRoom({
+      code: 'FUNK4242',
+      players: [
+        { id: 'u1', name: 'Alice', is_host: true },
+        { id: 'u2', name: 'Bob', is_host: false },
+      ],
+      settings: {
+        game_mode: 'blindtest',
+        genres: { all: 2 },
+        num_rounds: 5,
+        extract_duration: 30,
+        karaoke_variant: 'classic',
+      },
+      status: 'playing',
+    })
+  }
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
       { path: '/', component: { template: '<div>home</div>' } },
+      { path: '/:code', component: { template: '<div>lobby</div>' } },
       { path: '/:code/play', component: GameView, props: true },
     ],
   })
@@ -32,9 +55,9 @@ async function mountGame() {
   await router.isReady()
   const wrapper = mount(GameView, {
     props: { code: 'FUNK4242' },
-    global: { plugins: [router, createPinia()] },
+    global: { plugins: [router, pinia] },
   })
-  return { wrapper, router }
+  return { wrapper, router, pinia }
 }
 
 describe('GameView', () => {
@@ -47,57 +70,31 @@ describe('GameView', () => {
   it('redirects to / when there is no auth token', async () => {
     const { router } = await mountGame()
     const pushSpy = vi.spyOn(router, 'replace')
-    // Re-mount fresh without token (after clearing state)
     const wrapper = mount(GameView, {
       props: { code: 'FUNK4242' },
       global: { plugins: [router, createPinia()] },
     })
     await wrapper.vm.$nextTick()
-    // The onMounted in the second mount triggers the redirect
     expect(pushSpy).toHaveBeenCalledWith('/')
   })
 
   it('connects the socket and registers listeners when authenticated', async () => {
-    setActivePinia(createPinia())
-    const authPinia = createPinia()
-    setActivePinia(authPinia)
-    const auth = useAuthStore()
-    auth.setAuth({ token: 'tkn', username: 'alice', user_id: 'u1' })
-
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [
-        { path: '/', component: { template: '<div>home</div>' } },
-        { path: '/:code/play', component: GameView, props: true },
-      ],
-    })
-    await router.push('/FUNK4242/play')
-    await router.isReady()
-
-    mount(GameView, {
-      props: { code: 'FUNK4242' },
-      global: { plugins: [router, authPinia] },
-    })
-
-    expect(socketMock.connect).toHaveBeenCalledWith('tkn')
+    await mountGame({ authenticated: true })
+    expect(socketMock.connect).toHaveBeenCalledWith('t')
     const events = socketMock.on.mock.calls.map((c) => c[0])
     expect(events).toContain('game_state')
     expect(events).toContain('game_ended')
     expect(events).toContain('ambiance_update')
+    expect(events).toContain('left_game')
+    expect(events).toContain('returned_to_lobby')
   })
 
   it('hides the VolumeControl during the countdown phase', async () => {
-    const pinia = createPinia()
+    const { pinia } = await mountGame({ authenticated: true })
     setActivePinia(pinia)
-    const auth = useAuthStore()
-    auth.setAuth({ token: 't', username: 'a', user_id: 'u' })
     const gameStore = useGameStore()
-    gameStore.setState({
-      phase: 'countdown',
-      current_round: 0,
-      total_rounds: 5,
-      total_scores: {},
-    })
+    gameStore.setState({ phase: 'countdown', current_round: 0, total_rounds: 5, total_scores: {} })
+
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [{ path: '/:code/play', component: GameView, props: true }],
@@ -112,17 +109,11 @@ describe('GameView', () => {
   })
 
   it('shows the VolumeControl in the zone-info header when not in countdown', async () => {
-    const pinia = createPinia()
+    const { pinia } = await mountGame({ authenticated: true })
     setActivePinia(pinia)
-    const auth = useAuthStore()
-    auth.setAuth({ token: 't', username: 'a', user_id: 'u' })
     const gameStore = useGameStore()
-    gameStore.setState({
-      phase: 'playing',
-      current_round: 0,
-      total_rounds: 5,
-      total_scores: {},
-    })
+    gameStore.setState({ phase: 'playing', current_round: 0, total_rounds: 5, total_scores: {} })
+
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [{ path: '/:code/play', component: GameView, props: true }],
@@ -137,17 +128,10 @@ describe('GameView', () => {
   })
 
   it('renders the translated phase name from the game store', async () => {
-    const pinia = createPinia()
+    const { pinia } = await mountGame({ authenticated: true })
     setActivePinia(pinia)
-    const auth = useAuthStore()
-    auth.setAuth({ token: 't', username: 'a', user_id: 'u' })
     const gameStore = useGameStore()
-    gameStore.setState({
-      phase: 'countdown',
-      current_round: 0,
-      total_rounds: 5,
-      total_scores: {},
-    })
+    gameStore.setState({ phase: 'countdown', current_round: 0, total_rounds: 5, total_scores: {} })
 
     const router = createRouter({
       history: createMemoryHistory(),
@@ -155,7 +139,6 @@ describe('GameView', () => {
     })
     await router.push('/FUNK4242/play')
     await router.isReady()
-
     const wrapper = mount(GameView, {
       props: { code: 'FUNK4242' },
       global: { plugins: [router, pinia] },
@@ -164,24 +147,10 @@ describe('GameView', () => {
   })
 
   it('game_state socket event updates the game store', async () => {
-    const pinia = createPinia()
+    const { pinia } = await mountGame({ authenticated: true })
     setActivePinia(pinia)
-    const auth = useAuthStore()
-    auth.setAuth({ token: 't', username: 'a', user_id: 'u' })
     const gameStore = useGameStore()
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/:code/play', component: GameView, props: true }],
-    })
-    await router.push('/FUNK4242/play')
-    await router.isReady()
-    mount(GameView, {
-      props: { code: 'FUNK4242' },
-      global: { plugins: [router, pinia] },
-    })
-
-    // Grab the handler that GameView registered for game_state
     const gameStateCall = socketMock.on.mock.calls.find((c) => c[0] === 'game_state')
     const handler = gameStateCall![1] as (data: unknown) => void
     handler({ phase: 'playing', current_round: 2, total_rounds: 10, total_scores: {} })
@@ -189,13 +158,28 @@ describe('GameView', () => {
   })
 
   it('unregisters socket listeners on unmount', async () => {
-    const pinia = createPinia()
+    const { wrapper } = await mountGame({ authenticated: true })
+    wrapper.unmount()
+    const offEvents = socketMock.off.mock.calls.map((c) => c[0])
+    expect(offEvents).toContain('game_state')
+    expect(offEvents).toContain('game_ended')
+    expect(offEvents).toContain('ambiance_update')
+    expect(offEvents).toContain('left_game')
+    expect(offEvents).toContain('returned_to_lobby')
+  })
+
+  it('renders quit button when game state exists', async () => {
+    const { pinia } = await mountGame({ authenticated: true })
     setActivePinia(pinia)
-    const auth = useAuthStore()
-    auth.setAuth({ token: 't', username: 'a', user_id: 'u' })
+    const gameStore = useGameStore()
+    gameStore.setState({ phase: 'playing', current_round: 0, total_rounds: 5, total_scores: {} })
+
     const router = createRouter({
       history: createMemoryHistory(),
-      routes: [{ path: '/:code/play', component: GameView, props: true }],
+      routes: [
+        { path: '/', component: { template: '<div>home</div>' } },
+        { path: '/:code/play', component: GameView, props: true },
+      ],
     })
     await router.push('/FUNK4242/play')
     await router.isReady()
@@ -203,10 +187,52 @@ describe('GameView', () => {
       props: { code: 'FUNK4242' },
       global: { plugins: [router, pinia] },
     })
-    wrapper.unmount()
-    const offEvents = socketMock.off.mock.calls.map((c) => c[0])
-    expect(offEvents).toContain('game_state')
-    expect(offEvents).toContain('game_ended')
-    expect(offEvents).toContain('ambiance_update')
+    expect(wrapper.find('[data-test="quit-game"]').exists()).toBe(true)
+  })
+
+  it('quit button opens confirm dialog', async () => {
+    const { pinia } = await mountGame({ authenticated: true, withRoom: true })
+    setActivePinia(pinia)
+    const gameStore = useGameStore()
+    gameStore.setState({ phase: 'playing', current_round: 0, total_rounds: 5, total_scores: {} })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/', component: { template: '<div>home</div>' } },
+        { path: '/:code/play', component: GameView, props: true },
+      ],
+    })
+    await router.push('/FUNK4242/play')
+    await router.isReady()
+    const wrapper = mount(GameView, {
+      props: { code: 'FUNK4242' },
+      global: { plugins: [router, pinia] },
+    })
+    await wrapper.find('[data-test="quit-game"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Quitter la partie ?')
+  })
+
+  it('left_game event navigates to home', async () => {
+    const { router } = await mountGame({ authenticated: true })
+    const pushSpy = vi.spyOn(router, 'push')
+
+    const leftGameCall = socketMock.on.mock.calls.find((c) => c[0] === 'left_game')
+    const handler = leftGameCall![1] as () => void
+    handler()
+    await flushPromises()
+    expect(pushSpy).toHaveBeenCalledWith('/')
+  })
+
+  it('returned_to_lobby event navigates to lobby', async () => {
+    const { router } = await mountGame({ authenticated: true })
+    const pushSpy = vi.spyOn(router, 'push')
+
+    const returnedCall = socketMock.on.mock.calls.find((c) => c[0] === 'returned_to_lobby')
+    const handler = returnedCall![1] as (data: unknown) => void
+    handler({ code: 'FUNK4242' })
+    await flushPromises()
+    expect(pushSpy).toHaveBeenCalledWith('/FUNK4242')
   })
 })
