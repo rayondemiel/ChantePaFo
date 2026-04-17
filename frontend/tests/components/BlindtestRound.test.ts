@@ -6,7 +6,7 @@ import BlindtestRound from '../../src/components/BlindtestRound.vue'
 import { useAuthStore } from '../../src/stores/auth'
 import { useRoomStore } from '../../src/stores/room'
 import { useGameStore } from '../../src/stores/game'
-import type { GameState, FuzzyResult } from '../../src/types'
+import type { GameState, FuzzyResult, MatchInfo } from '../../src/types'
 
 const socketMock = {
   connect: vi.fn(),
@@ -403,6 +403,15 @@ describe('BlindtestRound', () => {
     expect(wrapper.find('input.input-answer').exists()).toBe(false)
   })
 
+  it('renders ScoreBoard during round_pause phase', async () => {
+    const { wrapper } = await setup({
+      phase: 'round_pause',
+      total_scores: { u1: 10, u2: 7 },
+    })
+    const scoreboard = wrapper.findComponent({ name: 'ScoreBoard' })
+    expect(scoreboard.exists()).toBe(true)
+  })
+
   it('pauses the audio element when entering round_pause from playing_reveal', async () => {
     const pauseSpy = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
     try {
@@ -433,23 +442,64 @@ describe('BlindtestRound', () => {
     }
   })
 
-  it('host sees back-to-lobby button in finished phase and it routes to /:code', async () => {
-    const { wrapper, router } = await setup(
+  it('host sees back-to-lobby and replay buttons in finished phase', async () => {
+    const { wrapper } = await setup(
       {
         phase: 'finished',
       },
       { isHost: true },
     )
-    const btn = wrapper.find('[data-test="back-lobby"]')
-    expect(btn.exists()).toBe(true)
-    await btn.trigger('click')
-    await flushPromises()
-    expect(router.currentRoute.value.path).toBe('/FUNK4242')
+    const lobbyBtn = wrapper.find('[data-test="back-lobby"]')
+    expect(lobbyBtn.exists()).toBe(true)
+    const replayBtn = wrapper.find('[data-test="replay-game"]')
+    expect(replayBtn.exists()).toBe(true)
   })
 
-  it('does not show back-to-lobby button for non-host in finished phase', async () => {
+  it('return-to-lobby button emits return_to_lobby event', async () => {
+    const { wrapper } = await setup({ phase: 'finished' }, { isHost: true })
+    await wrapper.find('[data-test="back-lobby"]').trigger('click')
+    await flushPromises()
+    const call = socketMock.emit.mock.calls.find((c) => c[0] === 'return_to_lobby')
+    expect(call).toBeDefined()
+    expect(call![1]).toEqual({ code: 'FUNK4242' })
+  })
+
+  it('replay button emits replay_game event', async () => {
+    const { wrapper } = await setup({ phase: 'finished' }, { isHost: true })
+    await wrapper.find('[data-test="replay-game"]').trigger('click')
+    await flushPromises()
+    const call = socketMock.emit.mock.calls.find((c) => c[0] === 'replay_game')
+    expect(call).toBeDefined()
+    expect(call![1]).toEqual({ code: 'FUNK4242' })
+  })
+
+  it('finished phase shows waiting message for non-host', async () => {
     const { wrapper } = await setup({ phase: 'finished' }, { isHost: false })
     expect(wrapper.find('[data-test="back-lobby"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="replay-game"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="waiting-host"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain("En attente de l'hôte")
+  })
+
+  it('finished phase shows awards from game store', async () => {
+    const { wrapper, game } = await setup({ phase: 'finished' }, { isHost: false })
+    game.setFinalResults({
+      awards: [
+        {
+          id: 'maestro',
+          title: 'Le Maestro',
+          emoji: '\uD83C\uDFC6',
+          player_id: 'u1',
+          player_name: 'Alice',
+          detail: 'Alice avec 42 pts',
+        },
+      ],
+      total_scores: { u1: 42, u2: 10 },
+    })
+    await flushPromises()
+    expect(wrapper.find('.awards-ceremony').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Le Maestro')
+    expect(wrapper.text()).toContain('Alice')
   })
 
   it('attaches the audio element to useVolume when entering playing phase', async () => {
@@ -463,6 +513,165 @@ describe('BlindtestRound', () => {
     expect(arg).toBe(wrapper.find('audio').element)
   })
 
+  it('renders CircularCountdown during playing phase', async () => {
+    const { wrapper } = await setup({
+      phase: 'playing',
+      track: { preview_url: 'http://x/y.mp3', genre: 'pop' },
+      extract_duration: 30,
+    })
+    const cc = wrapper.findComponent({ name: 'CircularCountdown' })
+    expect(cc.exists()).toBe(true)
+    expect(cc.props('running')).toBe(true)
+    expect(cc.props('duration')).toBe(25)
+  })
+
+  it('falls back to 25s when extract_duration is missing', async () => {
+    const { wrapper } = await setup({
+      phase: 'playing',
+      track: { preview_url: 'http://x/y.mp3', genre: 'pop' },
+    })
+    const cc = wrapper.findComponent({ name: 'CircularCountdown' })
+    expect(cc.props('duration')).toBe(25)
+  })
+
+  it('keeps CircularCountdown running when locallyFound is true', async () => {
+    const { wrapper } = await setup({
+      phase: 'playing',
+      track: { preview_url: 'http://x/y.mp3', genre: 'pop' },
+      extract_duration: 30,
+    })
+    const handlerCall = socketMock.on.mock.calls.find((c) => c[0] === 'game_event_result')
+    const handler = handlerCall![1] as (d: unknown) => void
+    handler({
+      player_id: 'u1',
+      title_match: true,
+      artist_match: true,
+      bonus: true,
+      distance: 0,
+      correct_title: 'Thriller',
+      correct_artist: 'Michael Jackson',
+      cover_url: 'http://c/o.jpg',
+    })
+    await flushPromises()
+    const cc = wrapper.findComponent({ name: 'CircularCountdown' })
+    expect(cc.exists()).toBe(true)
+    expect(cc.props('running')).toBe(true)
+  })
+
+  it('does not render CircularCountdown during playing_reveal', async () => {
+    const { wrapper } = await setup({
+      phase: 'playing_reveal',
+      track: { preview_url: 'http://x/y.mp3', genre: 'pop', cover_url: 'http://c/o.jpg' },
+      round_results: {
+        correct_title: 'Thriller',
+        correct_artist: 'Michael Jackson',
+        cover_url: 'http://c/o.jpg',
+      },
+    })
+    const cc = wrapper.findComponent({ name: 'CircularCountdown' })
+    expect(cc.exists()).toBe(false)
+  })
+
+  it('renders RoundPodium with winners during playing_reveal phase', async () => {
+    const { wrapper } = await setup({
+      phase: 'playing_reveal',
+      track: { preview_url: 'http://x/y.mp3', genre: 'pop', cover_url: 'http://c/o.jpg' },
+      round_results: {
+        correct_title: 'Thriller',
+        correct_artist: 'Michael Jackson',
+        cover_url: 'http://c/o.jpg',
+        winners: [
+          { player_id: 'u1', name: 'Alice', time_ms: 1500 },
+          { player_id: 'u2', name: 'Bob', time_ms: 3200 },
+        ],
+      },
+    })
+    const podium = wrapper.findComponent({ name: 'RoundPodium' })
+    expect(podium.exists()).toBe(true)
+    expect(podium.props('winners')).toHaveLength(2)
+    expect(wrapper.text()).toContain('Alice')
+  })
+
+  it('does not render RoundPodium during playing', async () => {
+    const { wrapper } = await setup({
+      phase: 'playing',
+      track: { preview_url: 'http://x/y.mp3', genre: 'pop' },
+    })
+    const podium = wrapper.findComponent({ name: 'RoundPodium' })
+    expect(podium.exists()).toBe(false)
+  })
+
+  it('subscribes to player_match on mount and unsubscribes on unmount', async () => {
+    const { wrapper } = await setup({ phase: 'playing' })
+    const subscribed = socketMock.on.mock.calls.map((c) => c[0])
+    expect(subscribed).toContain('player_match')
+    wrapper.unmount()
+    const unsubscribed = socketMock.off.mock.calls.map((c) => c[0])
+    expect(unsubscribed).toContain('player_match')
+  })
+
+  it('renders a live ticker pill when player_match is received during playing', async () => {
+    const { wrapper } = await setup({
+      phase: 'playing',
+      track: { preview_url: 'http://x/y.mp3', genre: 'pop' },
+    })
+    const call = socketMock.on.mock.calls.find((c) => c[0] === 'player_match')
+    const handler = call![1] as (d: unknown) => void
+    handler({ player_id: 'u2', time_ms: 3200, match_type: 'title' })
+    await flushPromises()
+
+    const pills = wrapper.findAll('.ticker-pill')
+    expect(pills).toHaveLength(1)
+    expect(pills[0].text()).toContain('Bob')
+    expect(pills[0].text()).toContain('3.2s')
+  })
+
+  it('updates live ticker entry when same player sends upgraded match_type', async () => {
+    const { wrapper } = await setup({
+      phase: 'playing',
+      track: { preview_url: 'http://x/y.mp3', genre: 'pop' },
+    })
+    const call = socketMock.on.mock.calls.find((c) => c[0] === 'player_match')
+    const handler = call![1] as (d: unknown) => void
+    handler({ player_id: 'u2', time_ms: 3200, match_type: 'title' })
+    handler({ player_id: 'u2', time_ms: 4000, match_type: 'bonus' })
+    await flushPromises()
+    const pills = wrapper.findAll('.ticker-pill')
+    expect(pills).toHaveLength(1)
+  })
+
+  it('resets the live ticker when entering the next round', async () => {
+    const { wrapper, game } = await setup({
+      phase: 'playing',
+      current_round: 0,
+      track: { preview_url: 'http://x/y.mp3', genre: 'pop' },
+    })
+    const call = socketMock.on.mock.calls.find((c) => c[0] === 'player_match')
+    const handler = call![1] as (d: unknown) => void
+    handler({ player_id: 'u2', time_ms: 3200, match_type: 'title' })
+    await flushPromises()
+    expect(wrapper.findAll('.ticker-pill')).toHaveLength(1)
+
+    game.setState({
+      phase: 'round_pause',
+      current_round: 0,
+      total_rounds: 5,
+      total_scores: { u1: 0, u2: 0 },
+    })
+    await flushPromises()
+
+    game.setState({
+      phase: 'playing',
+      current_round: 1,
+      total_rounds: 5,
+      total_scores: { u1: 0, u2: 0 },
+      track: { preview_url: 'http://x/y2.mp3', genre: 'pop' },
+    })
+    await flushPromises()
+
+    expect(wrapper.findAll('.ticker-pill')).toHaveLength(0)
+  })
+
   it('detaches the music binding on unmount', async () => {
     const detach = vi.fn()
     attachMusicMock.mockImplementation(() => detach)
@@ -473,5 +682,47 @@ describe('BlindtestRound', () => {
     await flushPromises()
     wrapper.unmount()
     expect(detach).toHaveBeenCalled()
+  })
+
+  it('renders TrackWaveform during playing phase', async () => {
+    const { wrapper } = await setup({
+      phase: 'playing',
+      track: { preview_url: 'http://x/y.mp3', genre: 'pop' },
+      extract_duration: 30,
+    })
+    const waveform = wrapper.findComponent({ name: 'TrackWaveform' })
+    expect(waveform.exists()).toBe(true)
+    expect(waveform.props('frozen')).toBe(false)
+    expect(waveform.props('markers')).toEqual([])
+  })
+
+  it('passes frozen=true and markers to TrackWaveform during playing_reveal', async () => {
+    const markers: MatchInfo[] = [
+      { player_id: 'u1', name: 'Alice', time_ms: 3000, match_type: 'bonus' },
+    ]
+    const { wrapper } = await setup({
+      phase: 'playing_reveal',
+      track: { preview_url: 'http://x/y.mp3', genre: 'pop', cover_url: 'http://c/o.jpg' },
+      round_results: {
+        correct_title: 'Thriller',
+        correct_artist: 'Michael Jackson',
+        cover_url: 'http://c/o.jpg',
+        winners: [],
+        all_matches: markers,
+      },
+    })
+    const waveform = wrapper.findComponent({ name: 'TrackWaveform' })
+    expect(waveform.exists()).toBe(true)
+    expect(waveform.props('frozen')).toBe(true)
+    expect(waveform.props('markers')).toEqual(markers)
+  })
+
+  it('does not apply stress-pulse class when timeRemaining > 10', async () => {
+    const { wrapper } = await setup({
+      phase: 'playing',
+      track: { preview_url: 'http://x/y.mp3', genre: 'pop' },
+      extract_duration: 30,
+    })
+    expect(wrapper.find('.stress-pulse').exists()).toBe(false)
   })
 })
