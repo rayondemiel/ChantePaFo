@@ -148,7 +148,7 @@ class RoomService:
                 "game_mode": "blindtest",
                 "genres": {"all": 2},
                 "num_rounds": 10,
-                "extract_duration": 20,
+                "extract_duration": 30,
                 "karaoke_variant": "classic",
             },
             "status": "lobby",
