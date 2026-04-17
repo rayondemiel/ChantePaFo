@@ -46,7 +46,7 @@ const baseRoom: RoomState = {
     game_mode: 'blindtest',
     genres: { pop: 2, rock: 3 },
     num_rounds: 10,
-    extract_duration: 20,
+    extract_duration: 30,
     karaoke_variant: 'classic',
   },
   status: 'lobby',
