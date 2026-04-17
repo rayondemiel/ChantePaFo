@@ -6,9 +6,14 @@ from app.game.blindtest import BlindtestMode
 
 
 class FakeTrackProvider:
+    def __init__(self, custom_tracks: list[dict[str, Any]] | None = None) -> None:
+        self._custom_tracks = custom_tracks
+
     async def get_random_tracks(
         self, genre_config: dict[str, int], count: int = 10
     ) -> list[dict[str, Any]]:
+        if self._custom_tracks is not None:
+            return self._custom_tracks[:count]
         return [
             {
                 "id": i,
@@ -28,12 +33,16 @@ def _players(n: int) -> list[dict[str, str]]:
     return [{"id": f"p{i}", "name": f"Player{i}"} for i in range(n)]
 
 
-async def _started_mode(num_rounds: int = 2, num_players: int = 2) -> BlindtestMode:
+async def _started_mode(
+    num_rounds: int = 2,
+    num_players: int = 2,
+    custom_tracks: list[dict[str, Any]] | None = None,
+) -> BlindtestMode:
     mode = BlindtestMode()
     await mode.start(
         players=_players(num_players),
         settings={"num_rounds": num_rounds, "genres": {"pop": 1}},
-        track_provider=FakeTrackProvider(),
+        track_provider=FakeTrackProvider(custom_tracks),
     )
     return mode
 
@@ -208,9 +217,154 @@ async def test_unknown_event_returns_none() -> None:
 
 
 @pytest.mark.asyncio
+async def test_advance_to_reveal_populates_top_3_winners_sorted_by_time() -> None:
+    mode = await _started_mode(num_rounds=1, num_players=4)
+    await mode.handle_event("countdown_done", "p0", {})
+
+    await mode.handle_event("answer", "p0", {"text": "thriller michael jackson", "time_ms": 4000})
+    await mode.handle_event("answer", "p1", {"text": "thriller michael jackson", "time_ms": 2000})
+    await mode.handle_event("answer", "p2", {"text": "thriller michael jackson", "time_ms": 6000})
+    await mode.handle_event("answer", "p3", {"text": "thriller michael jackson", "time_ms": 3000})
+    mode.advance_to_reveal()
+
+    winners = mode.state["round_results"]["winners"]
+    assert len(winners) == 3
+    assert [w["player_id"] for w in winners] == ["p1", "p3", "p0"]
+    assert [w["time_ms"] for w in winners] == [2000, 3000, 4000]
+    assert winners[0]["name"] == "Player1"
+
+
+@pytest.mark.asyncio
+async def test_advance_to_reveal_winners_empty_when_no_bonus_matches() -> None:
+    mode = await _started_mode(num_rounds=1, num_players=2)
+    await mode.handle_event("countdown_done", "p0", {})
+    await mode.handle_event("answer", "p0", {"text": "bananas", "time_ms": 1000})
+    mode.advance_to_reveal()
+
+    assert mode.state["round_results"]["winners"] == []
+
+
+@pytest.mark.asyncio
+async def test_advance_to_reveal_winners_fewer_than_three_when_not_enough_matches() -> None:
+    mode = await _started_mode(num_rounds=1, num_players=4)
+    await mode.handle_event("countdown_done", "p0", {})
+    await mode.handle_event("answer", "p0", {"text": "thriller michael jackson", "time_ms": 3000})
+    await mode.handle_event("answer", "p1", {"text": "thriller michael jackson", "time_ms": 2000})
+    mode.advance_to_reveal()
+
+    winners = mode.state["round_results"]["winners"]
+    assert len(winners) == 2
+    assert [w["player_id"] for w in winners] == ["p1", "p0"]
+
+
+@pytest.mark.asyncio
+async def test_all_matches_includes_partial_and_bonus_sorted_by_time() -> None:
+    mode = await _started_mode(num_rounds=1, num_players=3)
+    await mode.handle_event("countdown_done", "p0", {})
+
+    # p0: bonus (title+artist), p1: title-only, p2: artist-only
+    await mode.handle_event("answer", "p0", {"text": "thriller michael jackson", "time_ms": 4000})
+    await mode.handle_event("answer", "p1", {"text": "thriller", "time_ms": 2000})
+    await mode.handle_event("answer", "p2", {"text": "michael jackson", "time_ms": 6000})
+    mode.advance_to_reveal()
+
+    all_matches = mode.state["round_results"]["all_matches"]
+    assert len(all_matches) == 3
+    assert [m["time_ms"] for m in all_matches] == [2000, 4000, 6000]
+    assert all_matches[0]["match_type"] == "title"
+    assert all_matches[1]["match_type"] == "bonus"
+    assert all_matches[2]["match_type"] == "artist"
+
+
+@pytest.mark.asyncio
+async def test_all_matches_empty_when_no_matches() -> None:
+    mode = await _started_mode(num_rounds=1, num_players=2)
+    await mode.handle_event("countdown_done", "p0", {})
+    await mode.handle_event("answer", "p0", {"text": "bananas", "time_ms": 1000})
+    mode.advance_to_reveal()
+
+    assert mode.state["round_results"]["all_matches"] == []
+
+
+@pytest.mark.asyncio
+async def test_all_matches_match_type_is_correct() -> None:
+    mode = await _started_mode(num_rounds=1, num_players=3)
+    await mode.handle_event("countdown_done", "p0", {})
+
+    await mode.handle_event("answer", "p0", {"text": "thriller michael jackson", "time_ms": 1000})
+    await mode.handle_event("answer", "p1", {"text": "thriller", "time_ms": 2000})
+    await mode.handle_event("answer", "p2", {"text": "michael jackson", "time_ms": 3000})
+    mode.advance_to_reveal()
+
+    all_matches = mode.state["round_results"]["all_matches"]
+    types_by_player = {m["player_id"]: m["match_type"] for m in all_matches}
+    assert types_by_player["p0"] == "bonus"
+    assert types_by_player["p1"] == "title"
+    assert types_by_player["p2"] == "artist"
+
+
+@pytest.mark.asyncio
 async def test_blindtest_end() -> None:
     mode = await _started_mode()
     final = await mode.end()
     assert "total_scores" in final
     assert "awards" in final
     assert "rounds" in final
+
+
+@pytest.mark.asyncio
+async def test_round_pause_is_last_round_flag_true_on_final_round() -> None:
+    mode = await _started_mode(num_rounds=1)
+    await mode.handle_event("countdown_done", "p0", {})
+    mode.advance_to_reveal()
+    result = mode.advance_to_pause()
+    assert result["is_last_round"] is True
+    assert mode.state["is_last_round"] is True
+
+
+@pytest.mark.asyncio
+async def test_round_pause_is_last_round_flag_false_on_non_final_round() -> None:
+    mode = await _started_mode(num_rounds=3)
+    await mode.handle_event("countdown_done", "p0", {})
+    mode.advance_to_reveal()
+    result = mode.advance_to_pause()
+    assert result["is_last_round"] is False
+    assert mode.state["is_last_round"] is False
+
+
+@pytest.mark.asyncio
+async def test_fuzzy_composite_accumulates_across_guesses() -> None:
+    """Composite artist: each component typed separately accumulates to artist_match."""
+    tracks: list[dict[str, Any]] = [
+        {
+            "id": 0,
+            "title": "Titanium",
+            "artist": "David Guetta feat. Florida",
+            "preview_url": "https://preview/0",
+            "cover_url": "https://cover/0",
+            "album": "",
+            "duration": 30,
+            "rank": 500000,
+        },
+    ]
+    mode = await _started_mode(num_rounds=1, num_players=1, custom_tracks=tracks)
+    await mode.handle_event("countdown_done", "p0", {})
+
+    # First guess: main artist (1 of 2 components)
+    r1 = await mode.handle_event("answer", "p0", {"text": "David Guetta", "time_ms": 3000})
+    assert r1 is not None
+    assert r1["artist_match"] is False  # only 1/2 components
+    assert 0 in r1["matched_artist_indices"]
+
+    # Second guess: featured artist (2 of 2 components → artist complete)
+    r2 = await mode.handle_event("answer", "p0", {"text": "Florida", "time_ms": 5000})
+    assert r2 is not None
+    assert r2["artist_match"] is True  # both components found
+    assert r2["bonus"] is False  # title not yet found
+
+    # Third guess: the title → bonus
+    r3 = await mode.handle_event("answer", "p0", {"text": "Titanium", "time_ms": 7000})
+    assert r3 is not None
+    assert r3["title_match"] is True
+    assert r3["artist_match"] is True
+    assert r3["bonus"] is True

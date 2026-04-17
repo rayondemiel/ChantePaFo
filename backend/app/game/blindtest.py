@@ -60,7 +60,7 @@ class BlindtestMode(GameMode):
             "phase": PHASE_COUNTDOWN,
             "current_round": 0,
             "total_rounds": len(self.tracks),
-            "extract_duration": settings.get("extract_duration", 20),
+            "extract_duration": settings.get("extract_duration", 30),
             "track": None,
             "round_scores": {},
             "round_results": {},
@@ -114,10 +114,20 @@ class BlindtestMode(GameMode):
 
         if prev:
             result["title_match"] = result["title_match"] or prev.get("title_match", False)
-            result["artist_match"] = result["artist_match"] or prev.get("artist_match", False)
-            result["bonus"] = result["title_match"] and result["artist_match"]
             if prev.get("title_match") and not result.get("title_match"):
                 result["time_ms"] = prev["time_ms"]
+
+            # Accumulate matched artist components across guesses so that
+            # composite artists (e.g. "David Guetta feat. Florida") can be
+            # found by typing each name separately.
+            prev_indices = set(prev.get("matched_artist_indices", []))
+            new_indices = set(result.get("matched_artist_indices", []))
+            all_indices = prev_indices | new_indices
+            total = result.get("total_artist_components", 1)
+            result["matched_artist_indices"] = sorted(all_indices)
+            result["artist_match"] = len(all_indices) >= total
+
+            result["bonus"] = result["title_match"] and result["artist_match"]
 
         self.round_answers[player_id] = result
         return result
@@ -130,10 +140,15 @@ class BlindtestMode(GameMode):
         current_track = self.state.get("track") or {}
         current_track["cover_url"] = track.get("cover_url", "")
         self.state["track"] = current_track
+
+        winners = self._compute_top_winners()
+
         self.state["round_results"] = {
             "correct_title": track["title"],
             "correct_artist": track["artist"],
             "cover_url": track.get("cover_url", ""),
+            "winners": winners,
+            "all_matches": self._compute_all_matches(),
         }
         self.state["phase"] = PHASE_PLAYING_REVEAL
         return {
@@ -142,10 +157,43 @@ class BlindtestMode(GameMode):
             "results": self.state["round_results"],
         }
 
+    def _compute_top_winners(self, limit: int = 3) -> list[dict[str, Any]]:
+        player_names: dict[str, str] = {p["id"]: p["name"] for p in self.players}
+        bonus_answers = [a for a in self.round_answers.values() if a.get("bonus") is True]
+        bonus_answers.sort(key=lambda a: a.get("time_ms", 0))
+        return [
+            {
+                "player_id": a["player_id"],
+                "name": player_names.get(a["player_id"], a["player_id"]),
+                "time_ms": a.get("time_ms", 0),
+            }
+            for a in bonus_answers[:limit]
+        ]
+
+    def _compute_all_matches(self) -> list[dict[str, Any]]:
+        player_names: dict[str, str] = {p["id"]: p["name"] for p in self.players}
+        matches: list[dict[str, Any]] = []
+        for a in self.round_answers.values():
+            if a.get("title_match") or a.get("artist_match"):
+                match_type = (
+                    "bonus" if a.get("bonus") else ("title" if a.get("title_match") else "artist")
+                )
+                matches.append(
+                    {
+                        "player_id": a["player_id"],
+                        "name": player_names.get(a["player_id"], a["player_id"]),
+                        "time_ms": a.get("time_ms", 0),
+                        "match_type": match_type,
+                    }
+                )
+        matches.sort(key=lambda m: m["time_ms"])
+        return matches
+
     def advance_to_pause(self) -> dict[str, Any]:
         """Transition playing_reveal → round_pause. Frontend stops audio here."""
         self.state["phase"] = PHASE_ROUND_PAUSE
-        return {"phase": PHASE_ROUND_PAUSE}
+        self.state["is_last_round"] = (self.state["current_round"] + 1) >= len(self.tracks)
+        return {"phase": PHASE_ROUND_PAUSE, "is_last_round": self.state["is_last_round"]}
 
     def advance_to_next_round(self) -> dict[str, Any]:
         """Transition round_pause → playing (next round) or finished if last."""
