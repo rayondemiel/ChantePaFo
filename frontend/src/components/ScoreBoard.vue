@@ -4,9 +4,14 @@
       v-for="(entry, idx) in ranked"
       :key="entry.id"
       class="score-row"
+      :class="{ 'score-row-leader': idx === 0 && ranked.length > 1 }"
       :style="{ '--hue': getPlayerHue(entry.id) }"
     >
-      <span class="score-rank">{{ idx + 1 }}</span>
+      <span class="score-rank"
+        ><span v-if="idx === 0 && ranked.length > 1" class="crown" aria-hidden="true"
+          >&#128081;</span
+        >{{ idx + 1 }}</span
+      >
       <span class="score-name">{{ entry.name }}</span>
       <span class="score-pts">{{ entry.score }}</span>
     </li>
@@ -58,7 +63,10 @@ const ranked = computed(() => {
   border: 1px solid rgba(var(--color-white-rgb), 0.06);
   border-radius: var(--radius-md);
   overflow: hidden;
-  transition: transform 0.18s var(--ease-smooth);
+  transition:
+    transform 0.18s var(--ease-smooth),
+    box-shadow 0.3s var(--ease-smooth),
+    background 0.3s var(--ease-smooth);
 }
 
 .score-row::before {
@@ -78,6 +86,7 @@ const ranked = computed(() => {
   transform: translateX(2px);
 }
 
+/* First place: golden glow */
 .score-row:first-child {
   background: linear-gradient(
     90deg,
@@ -89,11 +98,27 @@ const ranked = computed(() => {
   box-shadow: 0 0 18px rgba(var(--color-warning-rgb), 0.18);
 }
 
+/* Leader with golden glow border */
+.score-row-leader {
+  border-color: rgba(var(--color-warning-rgb), 0.45);
+  box-shadow:
+    0 0 18px rgba(var(--color-warning-rgb), 0.2),
+    inset 0 0 20px rgba(var(--color-warning-rgb), 0.05);
+}
+
+.crown {
+  font-size: 0.8em;
+  margin-right: 0.15em;
+  filter: drop-shadow(0 0 4px rgba(var(--color-warning-rgb), 0.6));
+}
+
 .score-rank {
   font-family: var(--font-display);
   color: var(--color-text-muted);
   min-width: 22px;
   letter-spacing: 1px;
+  display: inline-flex;
+  align-items: center;
 }
 
 .score-row:first-child .score-rank {
