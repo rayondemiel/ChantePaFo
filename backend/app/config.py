@@ -1,8 +1,7 @@
 import sys
 from pathlib import Path
 
-from pydantic import Field, field_validator
-from pydantic import ValidationError
+from pydantic import Field, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _FORBIDDEN_SECRETS = {
@@ -87,8 +86,7 @@ except ValidationError as e:
         )
     else:
         print(
-            f"\n\033[1;31mERROR: Invalid configuration in {_env_file}\033[0m\n"
-            f"{e}\n",
+            f"\n\033[1;31mERROR: Invalid configuration in {_env_file}\033[0m\n{e}\n",
             file=sys.stderr,
         )
     sys.exit(1)
