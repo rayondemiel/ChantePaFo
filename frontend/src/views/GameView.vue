@@ -304,4 +304,13 @@ onUnmounted(() => {
     animation: none;
   }
 }
+
+/* Blindtest and other game modes need the full viewport — override the
+   1200px utility cap applied by global .game-layout. */
+@media (min-width: 768px) {
+  .game-view.game-layout {
+    max-width: none;
+    margin: 0;
+  }
+}
 </style>

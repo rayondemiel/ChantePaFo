@@ -1675,56 +1675,151 @@ onBeforeUnmount(() => {
   }
 }
 
-/* === Desktop layout (>= 900px) === */
+/* === Desktop layout — fluid immersive stage === */
 .layout-desktop {
-  max-width: 1400px;
-  margin: 0 auto;
   width: 100%;
+  max-width: none;
+  margin: 0;
+  padding-inline: clamp(var(--space-md), 3vw, 3rem);
 }
 
 .layout-desktop .game-body {
   display: grid;
-  grid-template-columns: 1fr min(340px, 30%);
-  gap: var(--space-xl);
+  grid-template-columns: minmax(0, 1fr) clamp(260px, 20vw, 320px);
+  gap: clamp(var(--space-lg), 2.4vw, var(--space-xl));
   align-items: stretch;
-  min-height: calc(100vh - 80px);
+  min-height: 0;
 }
 
 .layout-desktop .zone-content {
   min-height: 0;
   justify-content: flex-start;
-  padding-top: var(--space-xl);
+  padding: var(--space-lg) clamp(var(--space-md), 2vw, var(--space-xl));
 }
 
+/* The answer stage centers within the main column, widened generously */
+.layout-desktop .answer-stage {
+  max-width: min(860px, 100%);
+  margin-inline: auto;
+}
+
+.layout-desktop .countdown-stage,
+.layout-desktop .pause-stage {
+  max-width: min(720px, 100%);
+  margin-inline: auto;
+}
+
+/* Hero elements breathe on wide screens */
 .layout-desktop .mystery-orb {
-  width: 220px;
-  height: 220px;
+  width: 260px;
+  height: 260px;
+}
+
+.layout-desktop .mystery-orb .synth-ring-1 {
+  width: 200px;
+  height: 200px;
+  margin: -100px 0 0 -100px;
+}
+
+.layout-desktop .mystery-orb .synth-ring-2 {
+  width: 240px;
+  height: 240px;
+  margin: -120px 0 0 -120px;
 }
 
 .layout-desktop .mystery-orb .synth-ring-3 {
-  width: 280px;
-  height: 280px;
-  margin: -140px 0 0 -140px;
+  width: 320px;
+  height: 320px;
+  margin: -160px 0 0 -160px;
+}
+
+.layout-desktop .mystery-orb .synth-sun,
+.layout-desktop .mystery-orb .synth-sonar {
+  width: 140px;
+  height: 140px;
+}
+
+.layout-desktop .reveal {
+  max-width: min(720px, 100%);
+  padding: var(--space-xl) var(--space-lg);
 }
 
 .layout-desktop .reveal-cover {
-  width: 150px;
-  height: 150px;
+  width: 180px;
+  height: 180px;
+}
+
+.layout-desktop .reveal-title {
+  font-size: var(--text-hero);
 }
 
 .layout-desktop .scoreboard-compact {
   display: none;
 }
 
+/* Sidebar → frosted-glass neon HUD */
 .layout-desktop .sidebar {
   display: flex;
   flex-direction: column;
-  gap: var(--space-lg);
-  padding: var(--space-lg) var(--space-sm) var(--space-lg) 0;
+  gap: var(--space-md);
   position: sticky;
-  top: 80px;
-  max-height: calc(100vh - 100px);
+  top: calc(var(--game-header-height, 72px) + var(--space-md));
+  align-self: start;
+  max-height: calc(100vh - var(--game-header-height, 72px) - var(--space-xl));
   overflow-y: auto;
+  padding: var(--space-md);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(
+    180deg,
+    rgba(var(--color-surface-rgb), 0.55),
+    rgba(var(--color-surface-rgb), 0.22)
+  );
+  border: 1px solid rgba(var(--color-accent-rgb), 0.18);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  box-shadow:
+    0 20px 50px -24px rgba(var(--color-black-rgb), 0.7),
+    0 0 40px -12px rgba(var(--color-accent-rgb), 0.2),
+    inset 0 1px 0 rgba(var(--color-white-rgb), 0.05);
+}
+
+.layout-desktop .sidebar::-webkit-scrollbar {
+  width: 6px;
+}
+.layout-desktop .sidebar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.layout-desktop .sidebar::-webkit-scrollbar-thumb {
+  background: rgba(var(--color-accent-rgb), 0.25);
+  border-radius: 3px;
+}
+
+/* Ultra-wide: give the stage even more presence */
+@media (min-width: 1600px) {
+  .layout-desktop {
+    padding-inline: clamp(var(--space-xl), 5vw, 5rem);
+  }
+  .layout-desktop .game-body {
+    grid-template-columns: minmax(0, 1fr) clamp(300px, 18vw, 360px);
+    gap: clamp(var(--space-xl), 3vw, 3rem);
+  }
+  .layout-desktop .answer-stage {
+    max-width: min(960px, 100%);
+  }
+  .layout-desktop .mystery-orb {
+    width: 300px;
+    height: 300px;
+  }
+  .layout-desktop .mystery-orb .synth-ring-2 {
+    width: 270px;
+    height: 270px;
+    margin: -135px 0 0 -135px;
+  }
+  .layout-desktop .mystery-orb .synth-ring-3 {
+    width: 360px;
+    height: 360px;
+    margin: -180px 0 0 -180px;
+  }
 }
 
 /* === Finished layout (full-width takeover) === */
