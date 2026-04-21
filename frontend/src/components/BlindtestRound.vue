@@ -1087,28 +1087,51 @@ onBeforeUnmount(() => {
 }
 
 .finished-body--desktop {
-  flex-direction: row;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(320px, 22vw, 420px);
   align-items: flex-start;
-  gap: var(--space-xl);
+  gap: clamp(var(--space-lg), 2.5vw, 3rem);
 }
 
 .finished-body--desktop .finished-main {
-  flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-xl);
+  gap: clamp(var(--space-lg), 2vw, var(--space-xl));
   align-items: center;
 }
 
 .finished-body--desktop .final-scoreboard {
-  width: 320px;
-  flex-shrink: 0;
+  width: 100%;
   position: sticky;
   top: var(--space-lg);
-  max-height: calc(100vh - 200px);
+  max-height: calc(100vh - 140px);
   overflow-y: auto;
-  padding-right: var(--space-xs);
+  padding: var(--space-md);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(
+    180deg,
+    rgba(var(--color-surface-rgb), 0.55),
+    rgba(var(--color-surface-rgb), 0.22)
+  );
+  border: 1px solid rgba(var(--color-accent-rgb), 0.18);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  box-shadow:
+    0 20px 50px -24px rgba(var(--color-black-rgb), 0.7),
+    0 0 40px -12px rgba(var(--color-accent-rgb), 0.2),
+    inset 0 1px 0 rgba(var(--color-white-rgb), 0.05);
+}
+
+.finished-body--desktop .final-scoreboard::-webkit-scrollbar {
+  width: 6px;
+}
+.finished-body--desktop .final-scoreboard::-webkit-scrollbar-track {
+  background: transparent;
+}
+.finished-body--desktop .final-scoreboard::-webkit-scrollbar-thumb {
+  background: rgba(var(--color-accent-rgb), 0.25);
+  border-radius: 3px;
 }
 
 .finished-main {
@@ -1822,35 +1845,79 @@ onBeforeUnmount(() => {
   }
 }
 
-/* === Finished layout (full-width takeover) === */
+/* === Finished layout (fluid full-bleed) === */
 .layout-finished {
-  max-width: 1400px;
-  margin: 0 auto;
   width: 100%;
+  max-width: none;
+  margin: 0;
+  padding-inline: clamp(var(--space-md), 3vw, 3rem);
 }
 
 .layout-finished .game-body {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
+  min-height: calc(100vh - var(--game-header-height, 72px));
 }
 
 .layout-finished .zone-content {
-  min-height: auto;
-  padding: var(--space-xl) var(--space-md);
+  flex: 1;
+  min-height: calc(100vh - var(--game-header-height, 72px));
+  padding: clamp(var(--space-lg), 3vh, var(--space-xl)) clamp(var(--space-md), 2vw, var(--space-xl));
+  align-items: stretch;
+  justify-content: stretch;
 }
 
 .layout-finished .finished-stage {
-  max-width: 1100px;
   width: 100%;
+  max-width: none;
+  flex: 1;
+  min-height: calc(100vh - var(--game-header-height, 72px) - var(--space-xl) * 2);
+  justify-content: space-evenly;
+  gap: clamp(var(--space-lg), 3vh, 2.5rem);
+  padding: 0;
 }
 
 .layout-finished .finished-title {
-  font-size: var(--text-hero);
+  font-size: clamp(var(--text-hero), 6vh, 4.5rem);
+}
+
+.layout-finished .finished-body {
+  flex: 1;
+  min-height: 0;
+}
+
+.layout-finished .finished-body--desktop {
+  align-items: stretch;
+}
+
+.layout-finished .finished-body--desktop .finished-main {
+  justify-content: space-evenly;
+  gap: clamp(var(--space-lg), 3.5vh, 2.5rem);
 }
 
 .layout-finished .game-podium {
-  max-width: 600px;
+  max-width: clamp(520px, 42vw, 760px);
+}
+
+.layout-finished .podium-rank-1 {
+  min-height: clamp(190px, 26vh, 340px);
+}
+.layout-finished .podium-rank-2 {
+  min-height: clamp(140px, 19vh, 250px);
+}
+.layout-finished .podium-rank-3 {
+  min-height: clamp(110px, 15vh, 200px);
+}
+
+.layout-finished .award-card {
+  min-height: clamp(72px, 10vh, 130px);
+  padding: clamp(var(--space-md), 1.5vh, var(--space-lg))
+    clamp(var(--space-md), 2vw, var(--space-lg));
+}
+
+.layout-finished .award-emoji {
+  font-size: clamp(2rem, 4vh, 3rem);
 }
 
 .layout-finished .awards-grid {
@@ -1873,6 +1940,35 @@ onBeforeUnmount(() => {
 @media (min-width: 768px) {
   .layout-finished .zone-actions .btn {
     min-width: 180px;
+  }
+}
+
+/* Ultra-wide: podium bigger, awards up to 4 cols, more generous gutters */
+@media (min-width: 1600px) {
+  .layout-finished {
+    padding-inline: clamp(var(--space-xl), 5vw, 5rem);
+  }
+  .layout-finished .game-podium {
+    max-width: clamp(640px, 38vw, 860px);
+  }
+  .layout-finished .awards-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  .finished-body--desktop {
+    grid-template-columns: minmax(0, 1fr) clamp(360px, 20vw, 460px);
+    gap: clamp(var(--space-xl), 3vw, 3.5rem);
+  }
+}
+
+@media (min-width: 2400px) {
+  .layout-finished .game-podium {
+    max-width: min(1000px, 34vw);
+  }
+  .layout-finished .awards-grid {
+    grid-template-columns: repeat(5, 1fr);
+  }
+  .finished-body--desktop {
+    grid-template-columns: minmax(0, 1fr) clamp(420px, 16vw, 520px);
   }
 }
 
