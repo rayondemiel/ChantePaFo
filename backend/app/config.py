@@ -85,8 +85,15 @@ except ValidationError as e:
             file=sys.stderr,
         )
     else:
+        # Pydantic's default ValidationError representation embeds the
+        # offending input_value, which can leak secrets (SECRET_KEY, METRICS
+        # password) into stderr → log aggregation. Print only field + message.
         print(
-            f"\n\033[1;31mERROR: Invalid configuration in {_env_file}\033[0m\n{e}\n",
+            f"\n\033[1;31mERROR: Invalid configuration in {_env_file}\033[0m",
             file=sys.stderr,
         )
+        for err in e.errors():
+            location = ".".join(str(part) for part in err["loc"])
+            print(f"  - {location}: {err['msg']}", file=sys.stderr)
+        print("", file=sys.stderr)
     sys.exit(1)
