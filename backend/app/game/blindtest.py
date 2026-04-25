@@ -11,6 +11,9 @@ _EMPTY_ANSWER: dict[str, Any] = {
     "artist_match": False,
     "bonus": False,
     "time_ms": 0,
+    "title_time_ms": 0,
+    "artist_time_ms": 0,
+    "bonus_time_ms": 0,
     "attempts": 0,
     "distance": 999,
 }
@@ -105,29 +108,48 @@ class BlindtestMode(GameMode):
     def _handle_answer(self, player_id: str, data: dict[str, Any]) -> dict[str, Any]:
         track = self.tracks[self.state["current_round"]]
         result: dict[str, Any] = fuzzy_match(data["text"], track["title"], track["artist"])
-        result["time_ms"] = data.get("time_ms", 0)
+        answer_time_ms = data.get("time_ms", 0)
+        result["time_ms"] = answer_time_ms
         result["text"] = data["text"]
         result["player_id"] = player_id
 
         prev = self.round_answers.get(player_id)
         result["attempts"] = (prev["attempts"] + 1) if prev else 1
 
-        if prev:
-            result["title_match"] = result["title_match"] or prev.get("title_match", False)
-            if prev.get("title_match") and not result.get("title_match"):
-                result["time_ms"] = prev["time_ms"]
+        # Title timestamp = first answer that matched the title.
+        prev_title_match = bool(prev and prev.get("title_match"))
+        if prev_title_match:
+            result["title_match"] = True
+            result["title_time_ms"] = prev.get("title_time_ms", prev.get("time_ms", 0))
+        elif result.get("title_match"):
+            result["title_time_ms"] = answer_time_ms
+        else:
+            result["title_time_ms"] = 0
 
-            # Accumulate matched artist components across guesses so that
-            # composite artists (e.g. "David Guetta feat. Florida") can be
-            # found by typing each name separately.
-            prev_indices = set(prev.get("matched_artist_indices", []))
-            new_indices = set(result.get("matched_artist_indices", []))
-            all_indices = prev_indices | new_indices
-            total = result.get("total_artist_components", 1)
-            result["matched_artist_indices"] = sorted(all_indices)
-            result["artist_match"] = len(all_indices) >= total
+        # Artist: accumulate matched components across guesses so that composite
+        # artists (e.g. "David Guetta feat. Florida") can be typed in pieces.
+        prev_indices = set(prev.get("matched_artist_indices", [])) if prev else set()
+        new_indices = set(result.get("matched_artist_indices", []))
+        all_indices = prev_indices | new_indices
+        total = result.get("total_artist_components", 1)
+        result["matched_artist_indices"] = sorted(all_indices)
+        result["artist_match"] = len(all_indices) >= total
 
-            result["bonus"] = result["title_match"] and result["artist_match"]
+        # Artist timestamp = the answer that completed the artist (all components).
+        prev_artist_match = bool(prev and prev.get("artist_match"))
+        if prev_artist_match:
+            result["artist_time_ms"] = prev.get("artist_time_ms", prev.get("time_ms", 0))
+        elif result["artist_match"]:
+            result["artist_time_ms"] = answer_time_ms
+        else:
+            result["artist_time_ms"] = 0
+
+        result["bonus"] = result["title_match"] and result["artist_match"]
+        # Bonus timestamp = the moment the second half (title or artist) landed.
+        if result["bonus"]:
+            result["bonus_time_ms"] = max(result["title_time_ms"], result["artist_time_ms"])
+        else:
+            result["bonus_time_ms"] = 0
 
         self.round_answers[player_id] = result
         return result
@@ -160,12 +182,12 @@ class BlindtestMode(GameMode):
     def _compute_top_winners(self, limit: int = 3) -> list[dict[str, Any]]:
         player_names: dict[str, str] = {p["id"]: p["name"] for p in self.players}
         bonus_answers = [a for a in self.round_answers.values() if a.get("bonus") is True]
-        bonus_answers.sort(key=lambda a: a.get("time_ms", 0))
+        bonus_answers.sort(key=lambda a: a.get("bonus_time_ms", a.get("time_ms", 0)))
         return [
             {
                 "player_id": a["player_id"],
                 "name": player_names.get(a["player_id"], a["player_id"]),
-                "time_ms": a.get("time_ms", 0),
+                "time_ms": a.get("bonus_time_ms", a.get("time_ms", 0)),
             }
             for a in bonus_answers[:limit]
         ]
@@ -175,14 +197,20 @@ class BlindtestMode(GameMode):
         matches: list[dict[str, Any]] = []
         for a in self.round_answers.values():
             if a.get("title_match") or a.get("artist_match"):
-                match_type = (
-                    "bonus" if a.get("bonus") else ("title" if a.get("title_match") else "artist")
-                )
+                if a.get("bonus"):
+                    match_type = "bonus"
+                    time_ms = a.get("bonus_time_ms", a.get("time_ms", 0))
+                elif a.get("title_match"):
+                    match_type = "title"
+                    time_ms = a.get("title_time_ms", a.get("time_ms", 0))
+                else:
+                    match_type = "artist"
+                    time_ms = a.get("artist_time_ms", a.get("time_ms", 0))
                 matches.append(
                     {
                         "player_id": a["player_id"],
                         "name": player_names.get(a["player_id"], a["player_id"]),
-                        "time_ms": a.get("time_ms", 0),
+                        "time_ms": time_ms,
                         "match_type": match_type,
                     }
                 )
@@ -207,7 +235,11 @@ class BlindtestMode(GameMode):
 
     def _end_round_scoring(self) -> None:
         self._fill_missing_answers()
-        scores = calculate_round_scores(list(self.round_answers.values()))
+        extract_duration_ms = int(self.state.get("extract_duration", 30)) * 1000
+        scores = calculate_round_scores(
+            list(self.round_answers.values()),
+            extract_duration_ms=extract_duration_ms,
+        )
         self.state["round_scores"] = scores
 
         self.history["rounds"].append({"answers": dict(self.round_answers), "scores": scores})
