@@ -31,6 +31,7 @@ from app.music.deezer import RoomScopedDeezerClient
 from app.rooms.schemas import PartialRoomSettings
 from app.rooms.service import ROOM_TTL, RoomService, public_room
 from app.sockets.payloads import (
+    AnswerPayload,
     GameEventPayload,
     JoinRoomPayload,
     KickPlayerPayload,
@@ -384,7 +385,19 @@ async def _handle_game_event(sid: str, data: object) -> None:
         await sio.emit("error", {"message": _ERR_NO_ACTIVE_SESSION}, to=sid)
         return
 
-    result = await game_session.handle_event(payload.event_type, user_id, payload.payload)
+    # Cap text length on answers to prevent Levenshtein-DoS via huge payloads.
+    # Server is also authoritative for timing — any client-supplied time_ms is
+    # discarded, BlindtestMode recomputes from its own monotonic clock.
+    event_payload: dict[str, Any] = payload.payload
+    if payload.event_type == "answer":
+        try:
+            answer = AnswerPayload.model_validate(event_payload)
+        except ValidationError:
+            await sio.emit("error", {"message": "Invalid answer payload"}, to=sid)
+            return
+        event_payload = {"text": answer.text}
+
+    result = await game_session.handle_event(payload.event_type, user_id, event_payload)
     if result is not None:
         if payload.event_type == "answer" and isinstance(game_session.mode, BlindtestMode):
             if result.get("title_match") or result.get("artist_match"):
