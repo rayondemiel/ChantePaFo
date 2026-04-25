@@ -458,13 +458,10 @@ const liveRankingFound = computed<RankingEntry[]>(() => {
     })
 })
 
-let playStart = 0
-
 watch(
   phase,
   (newPhase, oldPhase) => {
     if (newPhase === 'playing') {
-      playStart = Date.now()
       startPlayElapsedTimer()
     } else {
       stopPlayElapsedTimer()
@@ -496,7 +493,7 @@ function onAnswer(text: string) {
   socketEmit('game_event', {
     code: roomCode.value,
     event_type: 'answer',
-    payload: { text, time_ms: Date.now() - playStart },
+    payload: { text },
   })
 }
 
