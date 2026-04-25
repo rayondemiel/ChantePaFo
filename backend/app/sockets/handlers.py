@@ -27,7 +27,7 @@ from app.metrics import (
     SOCKETIO_EVENTS_TOTAL,
 )
 from app.models import User
-from app.music.deezer import DeezerClient
+from app.music.deezer import RoomScopedDeezerClient
 from app.rooms.schemas import PartialRoomSettings
 from app.rooms.service import ROOM_TTL, RoomService, public_room
 from app.sockets.payloads import (
@@ -348,7 +348,7 @@ async def _handle_start_game(sid: str, data: object) -> None:
     await game_session.start(
         players=room["players"],
         settings=room["settings"],
-        track_provider=DeezerClient(),
+        track_provider=RoomScopedDeezerClient(redis, payload.code),
     )
 
     updated_room = await svc.set_status(payload.code, "playing")
@@ -715,7 +715,7 @@ async def _handle_replay_game(sid: str, data: object) -> None:
     await game_session.start(
         players=room["players"],
         settings=room["settings"],
-        track_provider=DeezerClient(),
+        track_provider=RoomScopedDeezerClient(redis, payload.code),
     )
 
     await svc.set_status(payload.code, "playing")

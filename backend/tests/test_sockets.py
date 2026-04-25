@@ -182,7 +182,7 @@ async def _create_and_join(env: dict, sid: str = "sid-1") -> str:
 
 async def _start_game_mocked(env: dict, code: str, sid: str = "sid-1") -> None:
     """Call start_game handler with a mocked DeezerClient."""
-    with patch("app.sockets.handlers.DeezerClient") as MockDeezer:
+    with patch("app.sockets.handlers.RoomScopedDeezerClient") as MockDeezer:
         mock_instance = AsyncMock()
         mock_instance.get_random_tracks = AsyncMock(return_value=_FAKE_TRACKS)
         MockDeezer.return_value = mock_instance
@@ -1213,7 +1213,7 @@ async def test_start_game_room_deleted_after_join(sio_env):
     await sio_env["redis"].delete(f"room:{code}")
 
     sio_env["emitted"].clear()
-    with patch("app.sockets.handlers.DeezerClient") as MockDeezer:
+    with patch("app.sockets.handlers.RoomScopedDeezerClient") as MockDeezer:
         mock_instance = AsyncMock()
         mock_instance.get_random_tracks = AsyncMock(return_value=_FAKE_TRACKS)
         MockDeezer.return_value = mock_instance
@@ -1518,7 +1518,7 @@ async def test_replay_game_starts_new_session(sio_env):
     game_session.mode.state["phase"] = "finished"
 
     sio_env["emitted"].clear()
-    with patch("app.sockets.handlers.DeezerClient") as MockDeezer:
+    with patch("app.sockets.handlers.RoomScopedDeezerClient") as MockDeezer:
         mock_instance = AsyncMock()
         mock_instance.get_random_tracks = AsyncMock(return_value=_FAKE_TRACKS)
         MockDeezer.return_value = mock_instance
@@ -1545,7 +1545,7 @@ async def test_replay_game_rejected_for_non_host(sio_env):
     await sio_env["handlers"]["join_room"]("sid-1", {"code": code})
 
     sio_env["emitted"].clear()
-    with patch("app.sockets.handlers.DeezerClient") as MockDeezer:
+    with patch("app.sockets.handlers.RoomScopedDeezerClient") as MockDeezer:
         mock_instance = AsyncMock()
         mock_instance.get_random_tracks = AsyncMock(return_value=_FAKE_TRACKS)
         MockDeezer.return_value = mock_instance
