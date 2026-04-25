@@ -73,6 +73,21 @@ class GameEventPayload(_StrictBase):
         return v.upper() if isinstance(v, str) else v
 
 
+class AnswerPayload(BaseModel):
+    """Validates the inner payload of a blindtest 'answer' game event.
+
+    Bounded `text` length kills the Levenshtein-DoS vector (a 1MB string
+    against a 30-char title would block the asyncio worker for seconds).
+    Client-supplied `time_ms` is accepted but IGNORED by the server, which
+    computes timing from its own monotonic clock (otherwise a tampered
+    client could send time_ms=0 and score max points each round).
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    text: str = Field(..., max_length=200)
+
+
 class KickPlayerPayload(_StrictBase):
     code: str = Field(..., pattern=CODE_PATTERN)
     player_id: str = Field(..., min_length=1, max_length=64)
