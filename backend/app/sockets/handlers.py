@@ -53,6 +53,11 @@ _ERR_NO_ACTIVE_SESSION = "No active game session for this room"
 _ERR_KICKED = "You have been removed from this room"
 _ERR_HOST_ONLY_LOBBY = "Only the host can return to lobby"
 _ERR_HOST_ONLY_REPLAY = "Only the host can replay"
+_ERR_REPLAY_COOLDOWN = "Please wait before replaying again"
+
+# Minimum delay between replay_game requests per room. Prevents a host from
+# spamming the endpoint and hammering the Deezer API repeatedly.
+_REPLAY_COOLDOWN_SECONDS = 5
 
 
 def _kicked_key(code: str, user_id: str) -> str:
@@ -710,6 +715,18 @@ async def _handle_replay_game(sid: str, data: object) -> None:
         return
     if room["host_id"] != user_id:
         await sio.emit("error", {"message": _ERR_HOST_ONLY_REPLAY}, to=sid)
+        return
+
+    # Atomic per-room cooldown via Redis SET NX EX. Returns None if the key
+    # already exists (still in cooldown), True if we acquired it.
+    acquired = await redis.set(
+        f"replay_cooldown:{payload.code}",
+        "1",
+        ex=_REPLAY_COOLDOWN_SECONDS,
+        nx=True,
+    )
+    if not acquired:
+        await sio.emit("error", {"message": _ERR_REPLAY_COOLDOWN}, to=sid)
         return
 
     _active_sessions.pop(payload.code, None)
