@@ -1,9 +1,15 @@
+import time
 from typing import Any
 
 from app.game.awards import compute_awards
 from app.game.engine import GameMode, registry
 from app.game.fuzzy import fuzzy_match
 from app.game.scoring import calculate_round_scores
+
+
+def _now_ms() -> int:
+    """Monotonic clock in ms. Module-level so tests can patch it."""
+    return int(time.monotonic() * 1000)
 
 _EMPTY_ANSWER: dict[str, Any] = {
     "text": "",
@@ -98,6 +104,7 @@ class BlindtestMode(GameMode):
     ) -> dict[str, Any] | None:
         if event_type == "countdown_done":
             self.state["phase"] = PHASE_PLAYING
+            self.state["round_started_at_ms"] = _now_ms()
             return {"phase": PHASE_PLAYING}
 
         if event_type == "answer" and self.state.get("phase") == PHASE_PLAYING:
@@ -105,10 +112,26 @@ class BlindtestMode(GameMode):
 
         return None
 
+    def _compute_answer_time_ms(self, data: dict[str, Any]) -> int:
+        """Server-authoritative timestamp for an answer, clamped to the round window.
+
+        The client supplies a `time_ms` hint but it is NEVER trusted: a tampered
+        client could send 0 to score max points each round. When the round has
+        a server-side start (production path), we always recompute from the
+        monotonic clock. The client hint is only used in test environments
+        that don't simulate the timeline.
+        """
+        round_started_ms = self.state.get("round_started_at_ms")
+        if round_started_ms is None:
+            return int(data.get("time_ms", 0))
+        elapsed_ms = max(0, _now_ms() - int(round_started_ms))
+        extract_duration_ms = int(self.state.get("extract_duration", 30)) * 1000
+        return min(elapsed_ms, extract_duration_ms)
+
     def _handle_answer(self, player_id: str, data: dict[str, Any]) -> dict[str, Any]:
         track = self.tracks[self.state["current_round"]]
         result: dict[str, Any] = fuzzy_match(data["text"], track["title"], track["artist"])
-        answer_time_ms = data.get("time_ms", 0)
+        answer_time_ms = self._compute_answer_time_ms(data)
         result["time_ms"] = answer_time_ms
         result["text"] = data["text"]
         result["player_id"] = player_id
@@ -231,6 +254,7 @@ class BlindtestMode(GameMode):
             return {"phase": PHASE_FINISHED}
         self._load_round(next_round)
         self.state["phase"] = PHASE_PLAYING
+        self.state["round_started_at_ms"] = _now_ms()
         return {"phase": PHASE_PLAYING}
 
     def _end_round_scoring(self) -> None:
