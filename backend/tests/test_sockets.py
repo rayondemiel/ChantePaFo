@@ -889,7 +889,9 @@ async def test_game_event_result_not_enriched_on_partial_match(sio_env):
     assert "cover_url" not in payload
 
 
-async def test_player_match_emitted_on_bonus_match_with_type_bonus(sio_env):
+async def test_player_match_emitted_on_bonus_match_with_type_bonus(sio_env, monkeypatch):
+    fake = {"now_ms": 0}
+    monkeypatch.setattr("app.game.blindtest._now_ms", lambda: fake["now_ms"])
     await _connect(sio_env)
     code = await _create_and_join(sio_env)
     await _start_game_mocked(sio_env, code)
@@ -900,12 +902,13 @@ async def test_player_match_emitted_on_bonus_match_with_type_bonus(sio_env):
     app.sockets.handlers._cancel_round_timer(code)
 
     sio_env["emitted"].clear()
+    fake["now_ms"] = 1500
     await sio_env["handlers"]["game_event"](
         "sid-1",
         {
             "code": code,
             "event_type": "answer",
-            "payload": {"text": "Song0 Artist0", "time_ms": 1500},
+            "payload": {"text": "Song0 Artist0"},
         },
     )
 
@@ -1051,6 +1054,36 @@ async def test_game_event_invalid_payload(sio_env):
 
     errors = [e for e in sio_env["emitted"] if e["event"] == "error"]
     assert len(errors) > 0
+
+
+async def test_answer_with_oversized_text_is_rejected(sio_env):
+    """DoS guard: answer.text > 200 chars must be rejected before reaching fuzzy_match."""
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+    await _start_game_mocked(sio_env, code)
+    await sio_env["handlers"]["game_event"](
+        "sid-1", {"code": code, "event_type": "countdown_done", "payload": {}}
+    )
+    app.sockets.handlers._cancel_round_timer(code)
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["game_event"](
+        "sid-1",
+        {
+            "code": code,
+            "event_type": "answer",
+            "payload": {"text": "A" * 100_000},
+        },
+    )
+    errors = [
+        e
+        for e in sio_env["emitted"]
+        if e["event"] == "error" and "answer" in e["data"].get("message", "").lower()
+    ]
+    assert len(errors) == 1
+    # No game_event_result must have been emitted (handler bailed out).
+    results = [e for e in sio_env["emitted"] if e["event"] == "game_event_result"]
+    assert results == []
 
 
 async def test_game_event_not_in_room(sio_env):
@@ -1533,6 +1566,33 @@ async def test_replay_game_starts_new_session(sio_env):
 
     ambiance_events = [e for e in sio_env["emitted"] if e["event"] == "ambiance_update"]
     assert len(ambiance_events) >= 1
+
+
+async def test_replay_game_cooldown_blocks_rapid_repeats(sio_env):
+    """A second replay_game inside the cooldown window is rejected."""
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+    await _start_game_mocked(sio_env, code)
+    app.sockets.handlers._cancel_round_timer(code)
+
+    sio_env["emitted"].clear()
+    with patch("app.sockets.handlers.RoomScopedDeezerClient") as MockDeezer:
+        mock_instance = AsyncMock()
+        mock_instance.get_random_tracks = AsyncMock(return_value=_FAKE_TRACKS)
+        MockDeezer.return_value = mock_instance
+        # First replay acquires the cooldown lock and proceeds.
+        await sio_env["handlers"]["replay_game"]("sid-1", {"code": code})
+        app.sockets.handlers._cancel_round_timer(code)
+        # Second replay immediately after must be rejected.
+        sio_env["emitted"].clear()
+        await sio_env["handlers"]["replay_game"]("sid-1", {"code": code})
+
+    cooldown_errors = [
+        e
+        for e in sio_env["emitted"]
+        if e["event"] == "error" and "wait" in e["data"].get("message", "").lower()
+    ]
+    assert len(cooldown_errors) == 1
 
 
 async def test_replay_game_rejected_for_non_host(sio_env):

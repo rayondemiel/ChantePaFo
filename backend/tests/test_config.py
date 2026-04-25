@@ -41,3 +41,21 @@ def test_cors_validator_rejects_wildcard():
             metrics_password="a-valid-long-enough-metrics-password",
             cors_origins=["*"],
         )
+
+
+def test_format_validation_errors_does_not_leak_secret_value():
+    """Misconfigured secrets must NOT appear in the formatted error output."""
+    from app.config import format_validation_errors
+
+    leaky_secret = "leak-me-32"  # < 32 chars → triggers min_length error
+    leaky_password = "short-pw"  # < 16 chars → triggers min_length error
+    try:
+        Settings(secret_key=leaky_secret, metrics_password=leaky_password)
+    except ValidationError as e:
+        formatted = "\n".join(format_validation_errors(e))
+        assert leaky_secret not in formatted
+        assert leaky_password not in formatted
+        assert "secret_key" in formatted
+        assert "metrics_password" in formatted
+    else:
+        pytest.fail("expected ValidationError")

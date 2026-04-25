@@ -217,14 +217,22 @@ async def test_unknown_event_returns_none() -> None:
 
 
 @pytest.mark.asyncio
-async def test_advance_to_reveal_populates_top_3_winners_sorted_by_time() -> None:
+async def test_advance_to_reveal_populates_top_3_winners_sorted_by_time(monkeypatch) -> None:
+    fake = {"now_ms": 0}
+    monkeypatch.setattr("app.game.blindtest._now_ms", lambda: fake["now_ms"])
+
     mode = await _started_mode(num_rounds=1, num_players=4)
+    fake["now_ms"] = 0
     await mode.handle_event("countdown_done", "p0", {})
 
-    await mode.handle_event("answer", "p0", {"text": "thriller michael jackson", "time_ms": 4000})
-    await mode.handle_event("answer", "p1", {"text": "thriller michael jackson", "time_ms": 2000})
-    await mode.handle_event("answer", "p2", {"text": "thriller michael jackson", "time_ms": 6000})
-    await mode.handle_event("answer", "p3", {"text": "thriller michael jackson", "time_ms": 3000})
+    fake["now_ms"] = 4000
+    await mode.handle_event("answer", "p0", {"text": "thriller michael jackson"})
+    fake["now_ms"] = 2000
+    await mode.handle_event("answer", "p1", {"text": "thriller michael jackson"})
+    fake["now_ms"] = 6000
+    await mode.handle_event("answer", "p2", {"text": "thriller michael jackson"})
+    fake["now_ms"] = 3000
+    await mode.handle_event("answer", "p3", {"text": "thriller michael jackson"})
     mode.advance_to_reveal()
 
     winners = mode.state["round_results"]["winners"]
@@ -245,11 +253,18 @@ async def test_advance_to_reveal_winners_empty_when_no_bonus_matches() -> None:
 
 
 @pytest.mark.asyncio
-async def test_advance_to_reveal_winners_fewer_than_three_when_not_enough_matches() -> None:
+async def test_advance_to_reveal_winners_fewer_than_three_when_not_enough_matches(
+    monkeypatch,
+) -> None:
+    fake = {"now_ms": 0}
+    monkeypatch.setattr("app.game.blindtest._now_ms", lambda: fake["now_ms"])
+
     mode = await _started_mode(num_rounds=1, num_players=4)
     await mode.handle_event("countdown_done", "p0", {})
-    await mode.handle_event("answer", "p0", {"text": "thriller michael jackson", "time_ms": 3000})
-    await mode.handle_event("answer", "p1", {"text": "thriller michael jackson", "time_ms": 2000})
+    fake["now_ms"] = 3000
+    await mode.handle_event("answer", "p0", {"text": "thriller michael jackson"})
+    fake["now_ms"] = 2000
+    await mode.handle_event("answer", "p1", {"text": "thriller michael jackson"})
     mode.advance_to_reveal()
 
     winners = mode.state["round_results"]["winners"]
@@ -258,14 +273,20 @@ async def test_advance_to_reveal_winners_fewer_than_three_when_not_enough_matche
 
 
 @pytest.mark.asyncio
-async def test_all_matches_includes_partial_and_bonus_sorted_by_time() -> None:
+async def test_all_matches_includes_partial_and_bonus_sorted_by_time(monkeypatch) -> None:
+    fake = {"now_ms": 0}
+    monkeypatch.setattr("app.game.blindtest._now_ms", lambda: fake["now_ms"])
+
     mode = await _started_mode(num_rounds=1, num_players=3)
     await mode.handle_event("countdown_done", "p0", {})
 
     # p0: bonus (title+artist), p1: title-only, p2: artist-only
-    await mode.handle_event("answer", "p0", {"text": "thriller michael jackson", "time_ms": 4000})
-    await mode.handle_event("answer", "p1", {"text": "thriller", "time_ms": 2000})
-    await mode.handle_event("answer", "p2", {"text": "michael jackson", "time_ms": 6000})
+    fake["now_ms"] = 4000
+    await mode.handle_event("answer", "p0", {"text": "thriller michael jackson"})
+    fake["now_ms"] = 2000
+    await mode.handle_event("answer", "p1", {"text": "thriller"})
+    fake["now_ms"] = 6000
+    await mode.handle_event("answer", "p2", {"text": "michael jackson"})
     mode.advance_to_reveal()
 
     all_matches = mode.state["round_results"]["all_matches"]
@@ -330,6 +351,46 @@ async def test_round_pause_is_last_round_flag_false_on_non_final_round() -> None
     result = mode.advance_to_pause()
     assert result["is_last_round"] is False
     assert mode.state["is_last_round"] is False
+
+
+@pytest.mark.asyncio
+async def test_server_clock_overrides_client_supplied_time_ms(monkeypatch) -> None:
+    """Anti-cheat: a tampered client sending time_ms=0 must not score max points.
+
+    The server stamps the round start with a monotonic clock and computes the
+    answer time from that. Any time_ms in the client payload is ignored.
+    """
+    fake = {"now_ms": 1_000_000}
+    monkeypatch.setattr("app.game.blindtest._now_ms", lambda: fake["now_ms"])
+
+    mode = await _started_mode(num_rounds=1)
+    await mode.handle_event("countdown_done", "p0", {})
+    # 7 seconds elapse on the server clock.
+    fake["now_ms"] = 1_007_000
+
+    # Client cheats by sending time_ms=0.
+    result = await mode.handle_event("answer", "p0", {"text": "thriller", "time_ms": 0})
+    assert result is not None
+    assert result["title_match"] is True
+    # Server-computed time_ms is the real elapsed time, not the client's lie.
+    assert result["time_ms"] == 7000
+    assert result["title_time_ms"] == 7000
+
+
+@pytest.mark.asyncio
+async def test_server_clock_clamps_to_extract_duration(monkeypatch) -> None:
+    """An answer way past the round window is clamped to extract_duration_ms."""
+    fake = {"now_ms": 0}
+    monkeypatch.setattr("app.game.blindtest._now_ms", lambda: fake["now_ms"])
+
+    mode = await _started_mode(num_rounds=1)
+    await mode.handle_event("countdown_done", "p0", {})
+    # 5 minutes later — beyond the 30s extract.
+    fake["now_ms"] = 5 * 60 * 1000
+
+    result = await mode.handle_event("answer", "p0", {"text": "thriller"})
+    assert result is not None
+    assert result["time_ms"] == 30_000  # clamped to extract_duration
 
 
 @pytest.mark.asyncio
