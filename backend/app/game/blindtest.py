@@ -11,6 +11,7 @@ def _now_ms() -> int:
     """Monotonic clock in ms. Module-level so tests can patch it."""
     return int(time.monotonic() * 1000)
 
+
 _EMPTY_ANSWER: dict[str, Any] = {
     "text": "",
     "title_match": False,
