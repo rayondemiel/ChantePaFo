@@ -73,6 +73,19 @@ class Settings(BaseSettings):
         return v
 
 
+def format_validation_errors(e: ValidationError) -> list[str]:
+    """Format pydantic errors WITHOUT echoing input_value (which may be a secret).
+
+    The default `str(ValidationError)` embeds the offending input — we strip
+    it so misconfigured secrets never reach stderr / log aggregation.
+    """
+    lines: list[str] = []
+    for err in e.errors():
+        location = ".".join(str(part) for part in err["loc"])
+        lines.append(f"  - {location}: {err['msg']}")
+    return lines
+
+
 try:
     settings = Settings()  # type: ignore[call-arg]
 except ValidationError as e:
@@ -85,15 +98,11 @@ except ValidationError as e:
             file=sys.stderr,
         )
     else:
-        # Pydantic's default ValidationError representation embeds the
-        # offending input_value, which can leak secrets (SECRET_KEY, METRICS
-        # password) into stderr → log aggregation. Print only field + message.
         print(
             f"\n\033[1;31mERROR: Invalid configuration in {_env_file}\033[0m",
             file=sys.stderr,
         )
-        for err in e.errors():
-            location = ".".join(str(part) for part in err["loc"])
-            print(f"  - {location}: {err['msg']}", file=sys.stderr)
+        for line in format_validation_errors(e):
+            print(line, file=sys.stderr)
         print("", file=sys.stderr)
     sys.exit(1)
