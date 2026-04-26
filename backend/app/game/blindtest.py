@@ -76,9 +76,12 @@ class BlindtestMode(GameMode):
             "round_results": {},
         }
         self._load_round(0)
-        # _load_round leaves phase untouched on success; the game starts in
-        # countdown explicitly (only once, at the very beginning of the game).
-        self.state["phase"] = PHASE_COUNTDOWN
+        # _load_round sets phase to FINISHED if there are no tracks at all
+        # (Deezer returned nothing). In that case keep the finished phase so
+        # the caller can short-circuit instead of starting a timeline that
+        # would crash on self.tracks[0].
+        if self.state.get("phase") != PHASE_FINISHED:
+            self.state["phase"] = PHASE_COUNTDOWN
 
     def _load_round(self, round_idx: int) -> None:
         if round_idx >= len(self.tracks):
@@ -104,6 +107,13 @@ class BlindtestMode(GameMode):
         data: dict[str, Any],
     ) -> dict[str, Any] | None:
         if event_type == "countdown_done":
+            # Idempotent: only the legitimate countdown→playing transition
+            # advances the phase and anchors the round timer. Stray
+            # countdown_done events from any player mid-round must not reset
+            # round_started_at_ms (that would zero elapsed time and let
+            # everyone score max points).
+            if self.state.get("phase") != PHASE_COUNTDOWN:
+                return None
             self.state["phase"] = PHASE_PLAYING
             self.state["round_started_at_ms"] = _now_ms()
             return {"phase": PHASE_PLAYING}

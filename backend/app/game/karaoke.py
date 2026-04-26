@@ -14,7 +14,7 @@ PROGRESSIVE_TABLE: list[dict[str, Any]] = [
 
 
 class KaraokeMystereMode(GameMode):
-    name = "karaoke_mystere"
+    name = "karaoke"
 
     def __init__(self) -> None:
         self.state: dict[str, Any] = {}
