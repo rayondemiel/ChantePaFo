@@ -59,6 +59,9 @@ _ERR_REPLAY_COOLDOWN = "Please wait before replaying again"
 # spamming the endpoint and hammering the Deezer API repeatedly.
 _REPLAY_COOLDOWN_SECONDS = 5
 
+# Upper bound on any text fed to fuzzy_match() (Levenshtein is O(n*m)).
+_MAX_FUZZY_TEXT_LEN = 200
+
 
 def _kicked_key(code: str, user_id: str) -> str:
     return f"kicked:{code}:{user_id}"
@@ -357,6 +360,15 @@ async def _handle_start_game(sid: str, data: object) -> None:
         track_provider=RoomScopedDeezerClient(redis, payload.code),
     )
 
+    # Defensive: if the mode finished immediately (e.g. blindtest with zero
+    # tracks because Deezer returned nothing), don't transition the room to
+    # "playing" — finalize and stay in lobby with a clear error.
+    if game_session.get_state().get("phase") == PHASE_FINISHED:
+        logger.warning("start_game aborted: no tracks available room=%s", payload.code)
+        _active_sessions.pop(payload.code, None)
+        await sio.emit("error", {"message": "No tracks available for these settings"}, to=sid)
+        return
+
     updated_room = await svc.set_status(payload.code, "playing")
     if updated_room:
         logger.info("game started room=%s mode=%s", payload.code, mode_name)
@@ -390,8 +402,10 @@ async def _handle_game_event(sid: str, data: object) -> None:
         await sio.emit("error", {"message": _ERR_NO_ACTIVE_SESSION}, to=sid)
         return
 
-    # Cap text length on answers to prevent Levenshtein-DoS via huge payloads.
-    # Server is also authoritative for timing — any client-supplied time_ms is
+    # Cap text length on any event that ends up in fuzzy_match() to prevent
+    # Levenshtein-DoS via huge payloads (a 1MB string against a 30-char title
+    # would block the asyncio worker for seconds). Server is also authoritative
+    # for timing on blindtest answers — any client-supplied time_ms is
     # discarded, BlindtestMode recomputes from its own monotonic clock.
     event_payload: dict[str, Any] = payload.payload
     if payload.event_type == "answer":
@@ -401,6 +415,14 @@ async def _handle_game_event(sid: str, data: object) -> None:
             await sio.emit("error", {"message": "Invalid answer payload"}, to=sid)
             return
         event_payload = {"text": answer.text}
+    elif payload.event_type in ("guess", "submit_step"):
+        # Karaoke (guess) and telephone (submit_step write) feed text into
+        # fuzzy_match too. submit_step also carries audio_url for the singing
+        # variant — pass it through unchanged but bound the text field.
+        text = event_payload.get("text", "")
+        if isinstance(text, str) and len(text) > _MAX_FUZZY_TEXT_LEN:
+            await sio.emit("error", {"message": "Answer too long"}, to=sid)
+            return
 
     result = await game_session.handle_event(payload.event_type, user_id, event_payload)
     if result is not None:
@@ -747,6 +769,12 @@ async def _handle_replay_game(sid: str, data: object) -> None:
         settings=room["settings"],
         track_provider=RoomScopedDeezerClient(redis, payload.code),
     )
+
+    if game_session.get_state().get("phase") == PHASE_FINISHED:
+        logger.warning("replay_game aborted: no tracks available room=%s", payload.code)
+        _active_sessions.pop(payload.code, None)
+        await sio.emit("error", {"message": "No tracks available for these settings"}, to=sid)
+        return
 
     await svc.set_status(payload.code, "playing")
     state = game_session.get_state()
