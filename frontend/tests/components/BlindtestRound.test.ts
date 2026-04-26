@@ -166,12 +166,14 @@ describe('BlindtestRound', () => {
     const payload = call![1] as {
       code: string
       event_type: string
-      payload: { text: string; time_ms: number }
+      payload: { text: string }
     }
     expect(payload.code).toBe('FUNK4242')
     expect(payload).not.toHaveProperty('player_id')
     expect(payload.payload.text).toBe('Thriller')
-    expect(typeof payload.payload.time_ms).toBe('number')
+    // time_ms is no longer client-supplied — the server stamps it from its
+    // monotonic clock to prevent the "send time_ms=0 every round" cheat.
+    expect(payload.payload).not.toHaveProperty('time_ms')
   })
 
   it('subscribes and unsubscribes from game_event_result', async () => {
