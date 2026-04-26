@@ -58,6 +58,7 @@ import { useGameStore } from '../stores/game'
 import { useRoomStore } from '../stores/room'
 import { useAmbianceStore } from '../stores/ambiance'
 import { useSocket } from '../composables/useSocket'
+import { useAmbiance } from '../composables/useAmbiance'
 import BlindtestRound from '../components/BlindtestRound.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import VolumeControl from '../components/VolumeControl.vue'
@@ -70,6 +71,7 @@ const gameStore = useGameStore()
 const roomStore = useRoomStore()
 const ambianceStore = useAmbianceStore()
 const { connect: socketConnect, emit: socketEmit, on, off } = useSocket()
+const { start: startAmbiance, stop: stopAmbiance } = useAmbiance()
 
 const confirmQuitOpen = ref(false)
 
@@ -132,6 +134,7 @@ onMounted(() => {
   on('ambiance_update', onAmbiance)
   on('left_game', onLeftGame)
   on('returned_to_lobby', onReturnedToLobby)
+  startAmbiance()
 })
 
 onUnmounted(() => {
@@ -140,6 +143,7 @@ onUnmounted(() => {
   off('ambiance_update', onAmbiance)
   off('left_game', onLeftGame)
   off('returned_to_lobby', onReturnedToLobby)
+  stopAmbiance()
 })
 </script>
 

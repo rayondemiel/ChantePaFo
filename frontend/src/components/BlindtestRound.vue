@@ -291,6 +291,7 @@ import TrackWaveform from './TrackWaveform.vue'
 import { useBreakpoint } from '../composables/useBreakpoint'
 import { useSocket } from '../composables/useSocket'
 import { useVolume } from '../composables/useVolume'
+import { useAmbiance } from '../composables/useAmbiance'
 import { getPlayerHue } from '../lib/playerHue'
 import { formatTime } from '../lib/time'
 import { useAuthStore } from '../stores/auth'
@@ -300,6 +301,7 @@ import type { Award, FuzzyResult, MatchInfo, PlayerFoundEvent } from '../types'
 
 const { emit: socketEmit, on: socketOn, off: socketOff } = useSocket()
 const { attachMusic } = useVolume()
+const { connectAudio: connectAmbianceAudio } = useAmbiance()
 const { isMobile } = useBreakpoint()
 const auth = useAuthStore()
 const roomStore = useRoomStore()
@@ -324,6 +326,10 @@ const REVEAL_WINDOW_SECONDS = 5
 watchEffect(() => {
   if (audioRef.value && !detachMusic) {
     detachMusic = attachMusic(audioRef.value)
+    // Wire the audio into the ambiance analyser so --ambiance-intensity pulses
+    // with the bass while music plays. Idempotent per element (the composable
+    // dedupes via WeakMap).
+    connectAmbianceAudio(audioRef.value)
   } else if (!audioRef.value && detachMusic) {
     detachMusic()
     detachMusic = null
