@@ -34,6 +34,15 @@ vi.mock('../../src/composables/useVolume', () => ({
   }),
 }))
 
+const connectAmbianceAudioMock = vi.fn()
+vi.mock('../../src/composables/useAmbiance', () => ({
+  useAmbiance: () => ({
+    start: vi.fn(),
+    stop: vi.fn(),
+    connectAudio: connectAmbianceAudioMock,
+  }),
+}))
+
 async function setup(state: Partial<GameState>, opts: { isHost?: boolean; userId?: string } = {}) {
   const pinia = createPinia()
   setActivePinia(pinia)
@@ -87,6 +96,7 @@ describe('BlindtestRound', () => {
     })
     attachMusicMock.mockClear()
     attachMusicMock.mockImplementation(() => () => {})
+    connectAmbianceAudioMock.mockClear()
   })
 
   it('renders Countdown component in countdown phase', async () => {
@@ -525,6 +535,16 @@ describe('BlindtestRound', () => {
     expect(attachMusicMock).toHaveBeenCalled()
     const arg = attachMusicMock.mock.calls[0]?.[0]
     expect(arg).toBe(wrapper.find('audio').element)
+  })
+
+  it('connects the audio element to the ambiance analyser when entering playing phase', async () => {
+    const { wrapper } = await setup({
+      phase: 'playing',
+      track: { preview_url: 'http://x/y.mp3', genre: 'pop' },
+    })
+    await flushPromises()
+    expect(connectAmbianceAudioMock).toHaveBeenCalled()
+    expect(connectAmbianceAudioMock.mock.calls[0]?.[0]).toBe(wrapper.find('audio').element)
   })
 
   it('renders CircularCountdown during playing phase', async () => {

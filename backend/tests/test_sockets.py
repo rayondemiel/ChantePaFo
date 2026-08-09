@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine  # no
 from sqlalchemy.pool import StaticPool  # noqa: E402
 
 import app.sockets.handlers  # noqa: E402  (ensure register_handlers ran)
+from app.ambiance.engine import get_ambiance_for_genre  # noqa: E402
 from app.auth.service import create_access_token  # noqa: E402
 from app.database import Base  # noqa: E402
 from app.main import sio  # noqa: E402
@@ -180,11 +181,15 @@ async def _create_and_join(env: dict, sid: str = "sid-1") -> str:
     return code
 
 
-async def _start_game_mocked(env: dict, code: str, sid: str = "sid-1") -> None:
+async def _start_game_mocked(
+    env: dict, code: str, sid: str = "sid-1", tracks: list | None = None
+) -> None:
     """Call start_game handler with a mocked DeezerClient."""
     with patch("app.sockets.handlers.RoomScopedDeezerClient") as MockDeezer:
         mock_instance = AsyncMock()
-        mock_instance.get_random_tracks = AsyncMock(return_value=_FAKE_TRACKS)
+        mock_instance.get_random_tracks = AsyncMock(
+            return_value=_FAKE_TRACKS if tracks is None else tracks
+        )
         MockDeezer.return_value = mock_instance
         await env["handlers"]["start_game"](sid, {"code": code})
 
@@ -1442,6 +1447,108 @@ async def test_start_game_cancels_existing_timer(sio_env, monkeypatch):
     # since the new game is still in countdown).
     await asyncio.sleep(0)
     assert first_timer.cancelled() or first_timer.done()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Per-round genre ambiance (_emit_round_ambiance)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Two-round game with distinct genres — enough to observe the round-1 emit and
+# the round-2 transition emit without draining 10 rounds.
+_GENRE_TRACKS = [
+    {**_FAKE_TRACKS[0], "genre": "rock"},
+    {**_FAKE_TRACKS[1], "genre": "jazz"},
+]
+
+
+async def test_round1_ambiance_matches_track_genre_after_countdown_done(sio_env, monkeypatch):
+    """After countdown_done, round 1's genre ambiance is broadcast to the room."""
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+    await _start_game_mocked(sio_env, code, tracks=_GENRE_TRACKS)
+
+    _real_sleep = asyncio.sleep
+
+    async def _slow_sleep(_delay, *args, **kwargs):
+        await _real_sleep(60)
+
+    monkeypatch.setattr("app.sockets.handlers.asyncio.sleep", _slow_sleep)
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["game_event"](
+        "sid-1", {"code": code, "event_type": "countdown_done", "payload": {}}
+    )
+    # Let the freshly spawned timeline task run up to its first (frozen) sleep —
+    # the round-1 ambiance emit happens before that sleep.
+    await _real_sleep(0)
+    await _real_sleep(0)
+
+    ambiance_events = [e for e in sio_env["emitted"] if e["event"] == "ambiance_update"]
+    assert len(ambiance_events) == 1
+    assert ambiance_events[0]["room"] == code
+    assert ambiance_events[0]["data"] == get_ambiance_for_genre("rock")
+
+    app.sockets.handlers._cancel_round_timer(code)
+
+
+async def test_round_transition_emits_ambiance_for_next_track_genre(sio_env, monkeypatch):
+    """Each round transition pushes an ambiance_update matching the new track's genre."""
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+    await _start_game_mocked(sio_env, code, tracks=_GENRE_TRACKS)
+
+    real_sleep = asyncio.sleep
+
+    async def _instant(_delay, *args, **kwargs):
+        await real_sleep(0)
+
+    monkeypatch.setattr("app.sockets.handlers.asyncio.sleep", _instant)
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["game_event"](
+        "sid-1", {"code": code, "event_type": "countdown_done", "payload": {}}
+    )
+
+    # Drain the whole 2-round timeline (instant sleeps → it finishes on its own).
+    timer = app.sockets.handlers._round_timers.get(code)
+    if timer is not None:
+        await timer
+
+    ambiance_events = [e for e in sio_env["emitted"] if e["event"] == "ambiance_update"]
+    # One emit per round, plus the lobby ambiance from the game-end cleanup.
+    assert len(ambiance_events) == 3
+    assert [e["data"] for e in ambiance_events[:2]] == [
+        get_ambiance_for_genre("rock"),
+        get_ambiance_for_genre("jazz"),
+    ]
+    assert all(e["room"] == code for e in ambiance_events)
+
+
+async def test_no_genre_ambiance_when_track_has_no_genre(sio_env, monkeypatch):
+    """_emit_round_ambiance stays silent when the round's track carries no genre."""
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+    # Default _FAKE_TRACKS have no "genre" key at all.
+    await _start_game_mocked(sio_env, code)
+
+    _real_sleep = asyncio.sleep
+
+    async def _slow_sleep(_delay, *args, **kwargs):
+        await _real_sleep(60)
+
+    monkeypatch.setattr("app.sockets.handlers.asyncio.sleep", _slow_sleep)
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["game_event"](
+        "sid-1", {"code": code, "event_type": "countdown_done", "payload": {}}
+    )
+    await _real_sleep(0)
+    await _real_sleep(0)
+
+    ambiance_events = [e for e in sio_env["emitted"] if e["event"] == "ambiance_update"]
+    assert ambiance_events == []
+
+    app.sockets.handlers._cancel_round_timer(code)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

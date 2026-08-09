@@ -18,6 +18,15 @@ vi.mock('../../src/composables/useSocket', () => ({
   useSocket: () => socketMock,
 }))
 
+const ambianceMock = {
+  start: vi.fn(),
+  stop: vi.fn(),
+  connectAudio: vi.fn(),
+}
+vi.mock('../../src/composables/useAmbiance', () => ({
+  useAmbiance: () => ambianceMock,
+}))
+
 async function mountGame(opts?: { authenticated?: boolean; withRoom?: boolean }) {
   const pinia = createPinia()
   setActivePinia(pinia)
@@ -65,6 +74,7 @@ describe('GameView', () => {
     setActivePinia(createPinia())
     localStorage.clear()
     Object.values(socketMock).forEach((m) => m.mockReset())
+    Object.values(ambianceMock).forEach((m) => m.mockReset())
   })
 
   it('redirects to / when there is no auth token', async () => {
@@ -156,6 +166,18 @@ describe('GameView', () => {
     const handler = gameStateCall![1] as (data: unknown) => void
     handler({ phase: 'playing', current_round: 2, total_rounds: 10, total_scores: {} })
     expect(gameStore.state?.phase).toBe('playing')
+  })
+
+  it('starts the ambiance loop on mount when authenticated', async () => {
+    await mountGame({ authenticated: true })
+    expect(ambianceMock.start).toHaveBeenCalledTimes(1)
+  })
+
+  it('stops the ambiance loop on unmount', async () => {
+    const { wrapper } = await mountGame({ authenticated: true })
+    expect(ambianceMock.stop).not.toHaveBeenCalled()
+    wrapper.unmount()
+    expect(ambianceMock.stop).toHaveBeenCalledTimes(1)
   })
 
   it('unregisters socket listeners on unmount', async () => {
