@@ -107,6 +107,21 @@ async def _finish_blindtest_game(code: str) -> None:
     logger.info("game finished room=%s", code)
 
 
+async def _emit_round_ambiance(code: str, mode: BlindtestMode) -> None:
+    """Emit an ambiance_update tailored to the current round's genre.
+
+    Called whenever a new round starts so the front-end orbs/glows reflect
+    the music being played (palette + intensity per genre, see
+    app/ambiance/engine.py). Without this, the ambiance stays frozen on
+    whatever the last emit was (countdown by default).
+    """
+    round_idx = int(mode.state.get("current_round", 0))
+    if 0 <= round_idx < len(mode.tracks):
+        genre = mode.tracks[round_idx].get("genre", "")
+        if genre:
+            await sio.emit("ambiance_update", get_ambiance_for_genre(genre), room=code)
+
+
 async def _run_round_timeline(code: str, game_session: GameSession) -> None:
     """Drive the blindtest round timeline via asyncio sleeps.
 
@@ -121,6 +136,10 @@ async def _run_round_timeline(code: str, game_session: GameSession) -> None:
     try:
         extract_duration = int(mode.state.get("extract_duration", 30))
         playing_duration = max(extract_duration - _REVEAL_DURATION_SECONDS, 0)
+
+        # Round 1 already entered PHASE_PLAYING via countdown_done — emit its
+        # ambiance now (the countdown_done handler doesn't know the track).
+        await _emit_round_ambiance(code, mode)
 
         while True:
             # Phase: playing — wait for the answer window to close.
@@ -147,6 +166,9 @@ async def _run_round_timeline(code: str, game_session: GameSession) -> None:
             if mode.state.get("phase") == PHASE_FINISHED:
                 await _finish_blindtest_game(code)
                 return
+            # New round just loaded → push its ambiance so the orbs reflect
+            # the new genre (otherwise they stay on the previous one).
+            await _emit_round_ambiance(code, mode)
             # Otherwise we're back in PHASE_PLAYING for the next round; loop.
     except asyncio.CancelledError:
         raise
