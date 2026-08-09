@@ -17,9 +17,11 @@
           v-if="audioActive"
           ref="audioRef"
           class="audio-el"
+          crossorigin="anonymous"
           :src="trackUrl"
           autoplay
           preload="auto"
+          @error="onAudioError"
         ></audio>
 
         <Transition name="phase" mode="out-in">
@@ -327,14 +329,28 @@ watchEffect(() => {
   if (audioRef.value && !detachMusic) {
     detachMusic = attachMusic(audioRef.value)
     // Wire the audio into the ambiance analyser so --ambiance-intensity pulses
-    // with the bass while music plays. Idempotent per element (the composable
-    // dedupes via WeakMap).
+    // with the bass while music plays. Safe because the <audio> declares
+    // crossorigin="anonymous" and Deezer's CDN returns ACAO `*` — without
+    // that combo the graph would silence (CORS-tainted source). Idempotent
+    // per element (the composable dedupes via WeakMap).
     connectAmbianceAudio(audioRef.value)
   } else if (!audioRef.value && detachMusic) {
     detachMusic()
     detachMusic = null
   }
 })
+
+function onAudioError() {
+  // Telemetry only — surfaces if Deezer ever flips its CORS policy or a
+  // preview URL HMAC expires mid-round. Without this listener the user
+  // would just see "no sound" with no hint as to why.
+  const err = audioRef.value?.error
+  console.warn('[blindtest] audio load failed', {
+    code: err?.code,
+    message: err?.message,
+    src: audioRef.value?.currentSrc,
+  })
+}
 
 const state = computed(() => gameStore.state)
 const phase = computed<string>(() => gameStore.state?.phase ?? '')

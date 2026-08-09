@@ -121,6 +121,19 @@ describe('BlindtestRound', () => {
     expect(wrapper.find('audio').exists()).toBe(true)
   })
 
+  it('declares crossorigin="anonymous" on the <audio> element so the FFT analyser is not CORS-tainted', async () => {
+    // Without this attribute, MediaElementAudioSource zeroes the entire
+    // graph (including destination) when the source is cross-origin —
+    // muting playback. Deezer's CDN returns ACAO `*` so the combo works.
+    const { wrapper } = await setup({
+      phase: 'playing',
+      track: { preview_url: 'http://x/y.mp3', genre: 'pop' },
+    })
+    const audio = wrapper.find('audio')
+    expect(audio.exists()).toBe(true)
+    expect(audio.attributes('crossorigin')).toBe('anonymous')
+  })
+
   it('renders the mystery orb during playing phase without leaking cover art', async () => {
     const { wrapper } = await setup({
       phase: 'playing',
