@@ -236,6 +236,51 @@ describe('GameView', () => {
     expect(wrapper.text()).toContain('Quitter la partie ?')
   })
 
+  it('renders the reaction bar and soundboard during gameplay', async () => {
+    const { pinia } = await mountGame({ authenticated: true, withRoom: true })
+    setActivePinia(pinia)
+    const gameStore = useGameStore()
+    gameStore.setState({ phase: 'playing', current_round: 0, total_rounds: 5, total_scores: {} })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/:code/play', component: GameView, props: true }],
+    })
+    await router.push('/FUNK4242/play')
+    await router.isReady()
+    const wrapper = mount(GameView, {
+      props: { code: 'FUNK4242' },
+      global: { plugins: [router, pinia] },
+    })
+    const social = wrapper.find('.zone-social')
+    expect(social.exists()).toBe(true)
+    expect(social.classes()).not.toContain('zone-social--hidden')
+    expect(social.find('.reaction-bar').exists()).toBe(true)
+    expect(social.find('.soundboard').exists()).toBe(true)
+  })
+
+  it('keeps the social zone mounted but visually hidden during countdown', async () => {
+    const { pinia } = await mountGame({ authenticated: true, withRoom: true })
+    setActivePinia(pinia)
+    const gameStore = useGameStore()
+    gameStore.setState({ phase: 'countdown', current_round: 0, total_rounds: 5, total_scores: {} })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/:code/play', component: GameView, props: true }],
+    })
+    await router.push('/FUNK4242/play')
+    await router.isReady()
+    const wrapper = mount(GameView, {
+      props: { code: 'FUNK4242' },
+      global: { plugins: [router, pinia] },
+    })
+    // Mounted (so reaction listeners stay alive) but opacity-hidden — a v-if
+    // here would unmount the sockets listeners and reflow the whole page.
+    const social = wrapper.get('.zone-social')
+    expect(social.classes()).toContain('zone-social--hidden')
+  })
+
   it('left_game event navigates to home', async () => {
     const { router } = await mountGame({ authenticated: true })
     const pushSpy = vi.spyOn(router, 'push')

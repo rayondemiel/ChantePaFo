@@ -473,6 +473,58 @@ async def test_reaction_success(sio_env):
     assert reaction_events[0]["data"]["player_name"] == "alice"
 
 
+async def _join_with_display_name(env: dict, display_name: str) -> str:
+    """Create a room whose player entry carries a friendly display name.
+
+    Mirrors the real flow: the REST layer registers the player with the name
+    they typed, while the socket session only knows the technical auth
+    username (a uniqueness slug like 'rayon_1786278286400').
+    """
+    svc = RoomService(env["redis"])
+    room = await svc.create_room(host_id="test-user-1", host_name=display_name)
+    code = room["code"]
+    await env["handlers"]["join_room"]("sid-1", {"code": code})
+    return code
+
+
+async def test_reaction_broadcasts_room_display_name(sio_env):
+    await _connect(sio_env)
+    code = await _join_with_display_name(sio_env, "Rayon")
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["reaction"]("sid-1", {"code": code, "emoji": "🔥"})
+
+    reaction_events = [e for e in sio_env["emitted"] if e["event"] == "reaction_received"]
+    assert len(reaction_events) == 1
+    assert reaction_events[0]["data"]["player_name"] == "Rayon"
+
+
+async def test_soundboard_broadcasts_room_display_name(sio_env):
+    await _connect(sio_env)
+    code = await _join_with_display_name(sio_env, "Rayon")
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["soundboard"]("sid-1", {"code": code, "sound": "applause"})
+
+    played = [e for e in sio_env["emitted"] if e["event"] == "soundboard_played"]
+    assert len(played) == 1
+    assert played[0]["data"]["player_name"] == "Rayon"
+    # player_id lets the frontend color the event capsule with the player hue.
+    assert played[0]["data"]["player_id"] == "test-user-1"
+
+
+async def test_player_left_broadcasts_room_display_name(sio_env):
+    await _connect(sio_env)
+    code = await _join_with_display_name(sio_env, "Rayon")
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["leave_game"]("sid-1", {"code": code})
+
+    left = [e for e in sio_env["emitted"] if e["event"] == "player_left"]
+    assert len(left) == 1
+    assert left[0]["data"]["name"] == "Rayon"
+
+
 async def test_reaction_invalid_payload(sio_env):
     await _connect(sio_env)
     await sio_env["handlers"]["reaction"]("sid-1", {})

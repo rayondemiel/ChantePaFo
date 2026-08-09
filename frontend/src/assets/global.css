@@ -237,8 +237,8 @@ body {
 
 /* === Reactions === */
 .react-btn {
-  width: 36px;
-  height: 36px;
+  width: var(--size-touch);
+  height: var(--size-touch);
   background: var(--color-surface);
   border-radius: 50%;
   display: flex;
@@ -262,6 +262,7 @@ body {
 /* === Soundboard === */
 .sound-btn {
   padding: 0.45rem 0.8rem;
+  min-height: var(--size-touch);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);

@@ -289,6 +289,15 @@ async def _handle_join_room(sid: str, data: object) -> None:
         return
 
     await sio.enter_room(sid, payload.code)
+
+    # The session username is a uniqueness slug (e.g. 'rayon_1786278286400');
+    # the name the player actually typed lives in the room record, registered
+    # by the REST join. Capture it once so broadcasts (reactions, soundboard,
+    # player_left) show the friendly name instead of the slug.
+    player = next((p for p in room["players"] if p["id"] == user_id), None)
+    display_name = (player or {}).get("name") or username
+    await sio.save_session(sid, {**session, "display_name": display_name})
+
     # Track the sid in a reverse-lookup set so kicks can find every live
     # socket for a given user_id.
     await cast("Any", redis.sadd(_room_sids_key(payload.code), sid))
@@ -523,7 +532,7 @@ async def _handle_reaction(sid: str, data: object) -> None:
 
     session = await sio.get_session(sid)
     user_id = session["user_id"]
-    username = session["username"]
+    username = session.get("display_name") or session["username"]
 
     if payload.code not in sio.rooms(sid):
         await sio.emit("error", {"message": _ERR_NOT_IN_ROOM}, to=sid)
@@ -555,7 +564,8 @@ async def _handle_soundboard(sid: str, data: object) -> None:
         return
 
     session = await sio.get_session(sid)
-    username = session["username"]
+    user_id = session["user_id"]
+    username = session.get("display_name") or session["username"]
 
     if payload.code not in sio.rooms(sid):
         await sio.emit("error", {"message": _ERR_NOT_IN_ROOM}, to=sid)
@@ -570,6 +580,7 @@ async def _handle_soundboard(sid: str, data: object) -> None:
     await sio.emit(
         "soundboard_played",
         {
+            "player_id": user_id,
             "player_name": username,
             "sound": payload.sound,
         },
@@ -671,7 +682,7 @@ async def _handle_leave_game(sid: str, data: object) -> None:
 
     sio_session = await sio.get_session(sid)
     user_id: str = sio_session["user_id"]
-    username: str = sio_session.get("username", user_id)
+    username: str = sio_session.get("display_name") or sio_session.get("username", user_id)
 
     if payload.code not in sio.rooms(sid):
         await sio.emit("error", {"message": _ERR_NOT_IN_ROOM}, to=sid)

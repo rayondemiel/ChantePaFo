@@ -36,6 +36,16 @@
         <BlindtestRound v-if="gameMode === 'blindtest'" />
         <p v-else class="phase-label">{{ gameStore.state.phase }}</p>
       </div>
+
+      <!-- Always mounted: a v-if would unmount the reaction listeners (no
+           floats during countdown) and reflow the page on every phase flip. -->
+      <div
+        class="zone-social"
+        :class="{ 'zone-social--hidden': gameStore.state.phase === 'countdown' }"
+      >
+        <ReactionBar />
+        <Soundboard />
+      </div>
     </template>
 
     <ConfirmDialog
@@ -60,6 +70,8 @@ import { useSocket } from '../composables/useSocket'
 import { useAmbiance } from '../composables/useAmbiance'
 import BlindtestRound from '../components/BlindtestRound.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
+import ReactionBar from '../components/ReactionBar.vue'
+import Soundboard from '../components/Soundboard.vue'
 import VolumeControl from '../components/VolumeControl.vue'
 import type { GameState, Award } from '../types'
 
@@ -279,6 +291,47 @@ onUnmounted(() => {
 .zone-content {
   position: relative;
   z-index: 1;
+  /* Absorb the viewport's free space so the game body fills the screen —
+     otherwise the leftover 100vh space pools as a dead gap between the
+     content and the social bar. */
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.zone-content > * {
+  flex: 1;
+}
+
+.zone-social {
+  /* Sticky bottom: stays under the thumb while scrolling the awards
+     ceremony — the peak social moment used to be two screens away. */
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md) calc(var(--space-md) + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(180deg, transparent, rgba(var(--color-bg-rgb), 0.92) 40%);
+  transition:
+    opacity 0.3s var(--ease-smooth),
+    transform 0.3s var(--ease-smooth);
+}
+
+.zone-social--hidden {
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+}
+
+@media (min-width: 900px) {
+  .zone-social {
+    flex-direction: row;
+    justify-content: center;
+    gap: var(--space-lg);
+  }
 }
 
 @keyframes ambient-drift-1 {
