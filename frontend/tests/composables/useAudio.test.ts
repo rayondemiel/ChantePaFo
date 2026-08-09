@@ -232,6 +232,22 @@ describe('useAudio', () => {
     expect(a.getMidLevel()).toBe(0)
   })
 
+  it('frequencyData notifies reactive watchers on every analyser tick', async () => {
+    const { watch } = await import('vue')
+    const a = await freshUseAudio()
+    a.connectAnalyser(fakeAudioEl())
+    let notifications = 0
+    watch(a.frequencyData, () => notifications++, { flush: 'sync' })
+    ctxHandle.freqBytes = new Uint8Array(128).fill(10)
+    raf.tick()
+    expect(notifications).toBe(1)
+    ctxHandle.freqBytes = new Uint8Array(128).fill(20)
+    raf.tick()
+    // Same underlying buffer object is reused — the composable must still
+    // notify (a reactive waveform re-renders from this signal every frame).
+    expect(notifications).toBe(2)
+  })
+
   it('setIsPlaying toggles the reactive ref', async () => {
     const a = await freshUseAudio()
     expect(a.isPlaying.value).toBe(false)

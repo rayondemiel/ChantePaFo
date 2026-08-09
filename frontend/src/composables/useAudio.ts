@@ -69,9 +69,11 @@ function startTickLoop(): void {
       return
     }
     analyser.getByteFrequencyData(buffer)
-    // Reassign a new view so Vue refs trigger reactivity for consumers that
-    // watch frequencyData directly (most consumers use the level helpers).
-    frequencyData.value = buffer
+    // Fresh copy every frame: reassigning the SAME buffer object never
+    // notifies watchers (Vue's hasChanged is Object.is), which silently
+    // breaks reactive consumers like the live waveform. 128 bytes/frame is
+    // nursery-GC noise; correctness beats the micro-optimization.
+    frequencyData.value = new Uint8Array(buffer)
     animFrame = requestAnimationFrame(tick)
   }
   tick()

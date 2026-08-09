@@ -71,6 +71,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useAudio } from '../composables/useAudio'
 import type { MatchInfo } from '../types'
 
 const BAR_COUNT = 40
@@ -94,7 +95,9 @@ const props = withDefaults(
 
 const barWidth = 400 / BAR_COUNT
 
-function barHeight(i: number): number {
+// Static fallback shape — used when frozen (reveal) or when the analyser has
+// no signal (not connected, or CORS-tainted source zeroing the graph).
+const STATIC_LEVELS = Array.from({ length: BAR_COUNT }, (_, i) => {
   const t = i / BAR_COUNT
   const raw =
     Math.sin(t * Math.PI * 2.7) * 0.25 +
@@ -102,20 +105,47 @@ function barHeight(i: number): number {
     Math.sin(t * Math.PI * 11.1) * 0.1 +
     Math.cos(t * Math.PI * 3.2 + 1) * 0.2 +
     0.35
-  const clamped = Math.max(0.15, Math.min(1, raw))
-  return clamped * 48
-}
+  return Math.max(0.15, Math.min(1, raw))
+})
 
-const bars = computed(() =>
-  Array.from({ length: BAR_COUNT }, (_, i) => {
-    const h = barHeight(i)
+const { frequencyData } = useAudio()
+
+// Live spectrum: bar i averages its share of the FFT bins (low → high across
+// the width). Null means "no usable signal, draw the static shape".
+const liveLevels = computed<number[] | null>(() => {
+  if (props.frozen) return null
+  const data = frequencyData.value
+  if (data.length === 0) return null
+  let energy = 0
+  const levels = Array.from({ length: BAR_COUNT }, (_, i) => {
+    const lo = Math.floor((i * data.length) / BAR_COUNT)
+    const hi = Math.max(lo + 1, Math.floor(((i + 1) * data.length) / BAR_COUNT))
+    const slice = data.subarray(lo, hi)
+    let sum = 0
+    slice.forEach((v) => {
+      sum += v
+    })
+    const level = sum / (slice.length * 255)
+    energy += level
+    return level
+  })
+  return energy > 0 ? levels : null
+})
+
+const bars = computed(() => {
+  const live = liveLevels.value
+  const source = live ?? STATIC_LEVELS
+  return source.map((level, i) => {
+    // sqrt keeps quiet bands visible (perceptual loudness), the 0.12 floor
+    // keeps the strip from ever looking dead between beats.
+    const h = (live ? 0.12 + 0.88 * Math.sqrt(level) : level) * 48
     return {
       x: i * barWidth,
       y: 48 - h,
       height: h,
     }
-  }),
-)
+  })
+})
 
 const filledCount = computed(() => {
   return Math.round(props.progress * BAR_COUNT)
@@ -199,12 +229,14 @@ const positionedMarkers = computed(() =>
 }
 
 .bar-animate {
-  animation: bar-breathe 2.5s ease-in-out infinite;
+  /* Four beat periods per breathe cycle — the strip paces itself to the
+     track's bpm (var synced by the ambiance store; ~2.4s at 100 bpm). */
+  animation: bar-breathe calc(var(--ambiance-pulse-speed, 0.6s) * 4) ease-in-out infinite;
 }
 
 .bar-critical.bar-animate {
   animation:
-    bar-breathe 2.5s ease-in-out infinite,
+    bar-breathe calc(var(--ambiance-pulse-speed, 0.6s) * 4) ease-in-out infinite,
     bar-pulse-critical 0.6s ease-in-out infinite;
 }
 

@@ -1,7 +1,34 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { nextTick } from 'vue'
 import TrackWaveform from '../../src/components/TrackWaveform.vue'
 import type { MatchInfo } from '../../src/types'
+
+// The live-spectrum bars read useAudio().frequencyData. Mock the module with
+// a controllable ref; the extra __setFrequencyData export is test-only.
+vi.mock('../../src/composables/useAudio', async () => {
+  const { ref } = await import('vue')
+  const frequencyData = ref(new Uint8Array(0))
+  return {
+    useAudio: () => ({ frequencyData }),
+    __setFrequencyData: (d: Uint8Array) => {
+      frequencyData.value = d
+    },
+  }
+})
+
+type AudioMockModule = typeof import('../../src/composables/useAudio') & {
+  __setFrequencyData: (d: Uint8Array) => void
+}
+const audioMock = (await import('../../src/composables/useAudio')) as AudioMockModule
+
+function barHeights(wrapper: ReturnType<typeof mountWaveform>): number[] {
+  return wrapper.findAll('.waveform-bar').map((b) => parseFloat(b.attributes('height') ?? '0'))
+}
+
+function avg(values: number[]): number {
+  return values.reduce((s, v) => s + v, 0) / values.length
+}
 
 function mountWaveform(props: Partial<InstanceType<typeof TrackWaveform>['$props']> = {}) {
   return mount(TrackWaveform, {
@@ -17,6 +44,72 @@ function mountWaveform(props: Partial<InstanceType<typeof TrackWaveform>['$props
 }
 
 describe('TrackWaveform', () => {
+  beforeEach(() => {
+    audioMock.__setFrequencyData(new Uint8Array(0))
+  })
+
+  describe('live spectrum bars', () => {
+    it('reshapes bar heights from frequency data while not frozen', async () => {
+      const wrapper = mountWaveform({ frozen: false })
+      const staticHeights = barHeights(wrapper)
+
+      const bytes = new Uint8Array(128)
+      bytes.fill(255, 0, 32) // energy in the low bins only
+      audioMock.__setFrequencyData(bytes)
+      await nextTick()
+
+      const liveHeights = barHeights(wrapper)
+      expect(liveHeights).not.toEqual(staticHeights)
+    })
+
+    it('maps low-frequency energy to the left bars and none to the right', async () => {
+      const wrapper = mountWaveform({ frozen: false })
+      const bytes = new Uint8Array(128)
+      bytes.fill(255, 0, 32)
+      audioMock.__setFrequencyData(bytes)
+      await nextTick()
+
+      const heights = barHeights(wrapper)
+      const left = avg(heights.slice(0, 8))
+      const right = avg(heights.slice(32, 40))
+      expect(left).toBeGreaterThan(right * 2)
+    })
+
+    it('falls back to the static shape when the spectrum is silent', async () => {
+      const wrapper = mountWaveform({ frozen: false })
+      const staticHeights = barHeights(wrapper)
+
+      audioMock.__setFrequencyData(new Uint8Array(128)) // connected but all-zero (e.g. CORS-tainted)
+      await nextTick()
+
+      expect(barHeights(wrapper)).toEqual(staticHeights)
+    })
+
+    it('ignores live data when frozen (reveal keeps the static shape)', async () => {
+      const wrapper = mountWaveform({ frozen: true })
+      const staticHeights = barHeights(wrapper)
+
+      const bytes = new Uint8Array(128)
+      bytes.fill(200)
+      audioMock.__setFrequencyData(bytes)
+      await nextTick()
+
+      expect(barHeights(wrapper)).toEqual(staticHeights)
+    })
+
+    it('keeps a visible floor on every bar even at full spectrum silence gaps', async () => {
+      const wrapper = mountWaveform({ frozen: false })
+      const bytes = new Uint8Array(128)
+      bytes.fill(255, 0, 4) // a single hot band, everything else silent
+      audioMock.__setFrequencyData(bytes)
+      await nextTick()
+
+      for (const h of barHeights(wrapper)) {
+        expect(h).toBeGreaterThan(3)
+      }
+    })
+  })
+
   it('renders 40 bars', () => {
     const wrapper = mountWaveform()
     const bars = wrapper.findAll('.waveform-bar')
