@@ -526,6 +526,108 @@ describe('BlindtestRound', () => {
     expect(wrapper.text()).toContain('Alice')
   })
 
+  describe('setlist recap (finished ceremony)', () => {
+    interface TracklistOverrides {
+      round?: number
+      title?: string
+      artist?: string
+      cover_url?: string
+      first_title?: { player_id: string; name: string; time_ms: number } | null
+      first_artist?: { player_id: string; name: string; time_ms: number } | null
+      nobody_found?: boolean
+    }
+    function tlEntry(over: TracklistOverrides = {}) {
+      return {
+        round: 1,
+        title: 'Thriller',
+        artist: 'Michael Jackson',
+        cover_url: 'https://cover/1',
+        first_title: null,
+        first_artist: null,
+        nobody_found: false,
+        ...over,
+      }
+    }
+
+    async function finishedWith(tracklist: ReturnType<typeof tlEntry>[]) {
+      const { wrapper, game } = await setup({ phase: 'finished' }, { isHost: false })
+      game.setFinalResults({ awards: [], total_scores: {}, tracklist })
+      await flushPromises()
+      return wrapper
+    }
+
+    it('renders one setlist row per played track with title and artist', async () => {
+      const wrapper = await finishedWith([
+        tlEntry({ round: 1 }),
+        tlEntry({ round: 2, title: 'Billie Jean', artist: 'MJ' }),
+      ])
+      expect(wrapper.text()).toContain('Setlist')
+      const rows = wrapper.findAll('.setlist-row')
+      expect(rows).toHaveLength(2)
+      expect(rows[0].text()).toContain('Thriller')
+      expect(rows[1].text()).toContain('Billie Jean')
+    })
+
+    it('split case: a title chip and an artist chip credit two different players', async () => {
+      const wrapper = await finishedWith([
+        tlEntry({
+          first_title: { player_id: 'u1', name: 'Alice', time_ms: 2300 },
+          first_artist: { player_id: 'u2', name: 'Bob', time_ms: 5000 },
+        }),
+      ])
+      const row = wrapper.get('.setlist-row')
+      const titleChip = row.get('.setlist-chip.chip-title')
+      const artistChip = row.get('.setlist-chip.chip-artist')
+      expect(titleChip.text()).toContain('Alice')
+      expect(artistChip.text()).toContain('Bob')
+      expect(row.classes()).toContain('setlist-row--split')
+    })
+
+    it('parfait case: one fused chip when the same player took both firsts', async () => {
+      const wrapper = await finishedWith([
+        tlEntry({
+          first_title: { player_id: 'u1', name: 'Alice', time_ms: 2300 },
+          first_artist: { player_id: 'u1', name: 'Alice', time_ms: 4100 },
+        }),
+      ])
+      const row = wrapper.get('.setlist-row')
+      expect(row.classes()).toContain('setlist-row--parfait')
+      const chips = row.findAll('.setlist-chip')
+      expect(chips).toHaveLength(1)
+      expect(chips[0].classes()).toContain('chip-parfait')
+      expect(chips[0].text()).toContain('★')
+      expect(chips[0].text()).toContain('Alice')
+    })
+
+    it('title-only: a ghost chip marks the unfound artist', async () => {
+      const wrapper = await finishedWith([
+        tlEntry({ first_title: { player_id: 'u1', name: 'Alice', time_ms: 2300 } }),
+      ])
+      const row = wrapper.get('.setlist-row')
+      expect(row.find('.setlist-chip.chip-title').exists()).toBe(true)
+      const ghost = row.get('.setlist-chip.chip-ghost')
+      expect(ghost.text().toLowerCase()).toContain('artiste')
+    })
+
+    it('nobody found: ghost row with the crickets beat', async () => {
+      const wrapper = await finishedWith([tlEntry({ nobody_found: true })])
+      const row = wrapper.get('.setlist-row')
+      expect(row.classes()).toContain('setlist-row--nobody')
+      expect(row.text()).toContain('Personne')
+      expect(row.text()).toContain('🦗')
+    })
+
+    it('the fastest title snipe of the game gets the lightning accent', async () => {
+      const wrapper = await finishedWith([
+        tlEntry({ round: 1, first_title: { player_id: 'u1', name: 'Alice', time_ms: 5000 } }),
+        tlEntry({ round: 2, first_title: { player_id: 'u2', name: 'Bob', time_ms: 1800 } }),
+      ])
+      const rows = wrapper.findAll('.setlist-row')
+      expect(rows[0].text()).not.toContain('⚡')
+      expect(rows[1].text()).toContain('⚡')
+    })
+  })
+
   it('attaches the audio element to useVolume when entering playing phase', async () => {
     const { wrapper } = await setup({
       phase: 'playing',

@@ -211,6 +211,88 @@
                   </div>
                 </div>
 
+                <!-- Setlist — the story of the night, round by round -->
+                <div v-if="setlist.length > 0" class="setlist-section">
+                  <h3 class="setlist-heading text-display">Setlist</h3>
+                  <p class="setlist-kicker">qui a dégainé en premier</p>
+                  <ol class="setlist">
+                    <li
+                      v-for="(t, i) in setlist"
+                      :key="t.round"
+                      class="setlist-row"
+                      :class="`setlist-row--${t.kind}`"
+                      :style="{ 'animation-delay': `${1 + Math.min(i, 12) * 0.07}s` }"
+                    >
+                      <span class="setlist-round" aria-hidden="true">{{ t.round }}</span>
+                      <img
+                        v-if="t.cover_url"
+                        class="setlist-cover"
+                        :src="t.cover_url"
+                        alt=""
+                        loading="lazy"
+                      />
+                      <span v-else class="setlist-cover setlist-cover--fallback" aria-hidden="true"
+                        >&#9835;</span
+                      >
+                      <span class="setlist-meta">
+                        <span class="setlist-title" :title="t.title">{{ t.title }}</span>
+                        <span class="setlist-artist" :title="t.artist">{{ t.artist }}</span>
+                      </span>
+                      <span class="setlist-chips">
+                        <template v-if="t.kind === 'parfait'">
+                          <span
+                            class="setlist-chip chip-parfait"
+                            :style="{ '--hue': t.titleHue }"
+                            :title="t.first_title!.name"
+                          >
+                            <span class="chip-glyph" aria-hidden="true">★</span>
+                            <span class="chip-dot" aria-hidden="true"></span>
+                            <span class="chip-name">{{ t.first_title!.name }}</span>
+                            <span class="chip-time"
+                              ><template v-if="t.isFastestTitle">⚡</template
+                              >{{ formatTime(t.parfaitMs) }}</span
+                            >
+                          </span>
+                        </template>
+                        <template v-else-if="t.kind === 'nobody'">
+                          <span class="setlist-chip chip-ghost chip-nobody"
+                            >Personne&nbsp;! 🦗</span
+                          >
+                        </template>
+                        <template v-else>
+                          <span
+                            v-if="t.first_title"
+                            class="setlist-chip chip-title"
+                            :style="{ '--hue': t.titleHue }"
+                            :title="t.first_title.name"
+                          >
+                            <span class="chip-glyph" aria-hidden="true">T</span>
+                            <span class="chip-dot" aria-hidden="true"></span>
+                            <span class="chip-name">{{ t.first_title.name }}</span>
+                            <span class="chip-time"
+                              ><template v-if="t.isFastestTitle">⚡</template
+                              >{{ formatTime(t.first_title.time_ms) }}</span
+                            >
+                          </span>
+                          <span v-else class="setlist-chip chip-ghost">titre —</span>
+                          <span
+                            v-if="t.first_artist"
+                            class="setlist-chip chip-artist"
+                            :style="{ '--hue': t.artistHue }"
+                            :title="t.first_artist.name"
+                          >
+                            <span class="chip-glyph" aria-hidden="true">A</span>
+                            <span class="chip-dot" aria-hidden="true"></span>
+                            <span class="chip-name">{{ t.first_artist.name }}</span>
+                            <span class="chip-time">{{ formatTime(t.first_artist.time_ms) }}</span>
+                          </span>
+                          <span v-else class="setlist-chip chip-ghost">artiste —</span>
+                        </template>
+                      </span>
+                    </li>
+                  </ol>
+                </div>
+
                 <!-- Action buttons centered under podium/awards -->
                 <div class="finished-actions">
                   <template v-if="isHost">
@@ -308,7 +390,7 @@ import { formatTime } from '../lib/time'
 import { useAuthStore } from '../stores/auth'
 import { useRoomStore } from '../stores/room'
 import { useGameStore } from '../stores/game'
-import type { Award, FuzzyResult, MatchInfo, PlayerFoundEvent } from '../types'
+import type { Award, FirstFinder, FuzzyResult, MatchInfo, PlayerFoundEvent } from '../types'
 
 const { emit: socketEmit, on: socketOn, off: socketOff } = useSocket()
 const { attachMusic } = useVolume()
@@ -528,6 +610,45 @@ function onAnswer(text: string) {
 }
 
 const displayAwards = computed<Award[]>(() => gameStore.awards)
+
+// Setlist recap: classify each played track for the ceremony. Semantic color
+// says WHAT was found (title/artist/both), player hue says WHO — the exact
+// grammar the waveform markers taught during the game.
+const setlist = computed(() => {
+  const entries = gameStore.tracklist
+  const titleTimes = entries
+    .filter((e) => e.first_title)
+    .map((e) => e.first_title as FirstFinder)
+    .map((f) => f.time_ms)
+  const fastestTitleMs = titleTimes.length > 1 ? Math.min(...titleTimes) : null
+  return entries.map((e) => {
+    const parfait =
+      e.first_title !== null &&
+      e.first_artist !== null &&
+      e.first_title.player_id === e.first_artist.player_id
+    const nobody = e.first_title === null && e.first_artist === null
+    const kind = parfait
+      ? 'parfait'
+      : nobody
+        ? 'nobody'
+        : e.first_title && e.first_artist
+          ? 'split'
+          : e.first_title
+            ? 'title'
+            : 'artist'
+    return {
+      ...e,
+      kind,
+      titleHue: e.first_title ? getPlayerHue(e.first_title.player_id) : 0,
+      artistHue: e.first_artist ? getPlayerHue(e.first_artist.player_id) : 0,
+      parfaitMs: parfait ? Math.max(e.first_title?.time_ms ?? 0, e.first_artist?.time_ms ?? 0) : 0,
+      isFastestTitle:
+        e.first_title !== null &&
+        fastestTitleMs !== null &&
+        e.first_title.time_ms === fastestTitleMs,
+    }
+  })
+})
 const finalDisplayScores = computed<Record<string, number>>(() => {
   const final = gameStore.finalScores
   return Object.keys(final).length > 0 ? final : totalScores.value
@@ -2201,5 +2322,225 @@ onBeforeUnmount(() => {
 
 .layout-mobile .podium-champion .podium-medal {
   font-size: var(--text-2xl);
+}
+
+/* === Setlist recap === */
+.setlist-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  width: 100%;
+  animation: fade-slide-in 0.3s var(--ease-smooth) 0.9s both;
+}
+
+.setlist-heading {
+  font-size: var(--text-xl);
+  text-transform: uppercase;
+  letter-spacing: 3px;
+  text-align: center;
+  color: var(--color-secondary);
+  text-shadow: 0 0 20px rgba(var(--color-secondary-rgb), 0.4);
+}
+
+.setlist-kicker {
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  letter-spacing: 1px;
+  margin: calc(-1 * var(--space-xs)) 0 0;
+}
+
+.setlist {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: var(--space-xs);
+}
+
+@media (min-width: 1024px) {
+  .setlist {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-xs) var(--space-md);
+  }
+}
+
+.setlist-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1.25rem 2.75rem minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--space-sm);
+  min-height: 56px;
+  padding: var(--space-sm) var(--space-md);
+  background: rgba(var(--color-surface-rgb), 0.6);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  animation: reveal-slide 0.5s var(--ease-bounce) both;
+}
+
+/* The 3px rail carries the outcome color — same grammar as the score rows. */
+.setlist-row::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--setlist-rail, var(--color-border));
+  box-shadow: 0 0 10px var(--setlist-rail, transparent);
+}
+
+.setlist-row--title {
+  --setlist-rail: var(--color-accent);
+}
+.setlist-row--artist {
+  --setlist-rail: var(--color-warning);
+}
+.setlist-row--parfait {
+  --setlist-rail: var(--color-success);
+  box-shadow: inset 0 0 20px rgba(var(--color-success-rgb), 0.08);
+}
+.setlist-row--split::before {
+  background: linear-gradient(180deg, var(--color-accent) 0 50%, var(--color-warning) 50% 100%);
+  box-shadow: none;
+}
+.setlist-row--nobody {
+  --setlist-rail: rgba(var(--color-white-rgb), 0.08);
+}
+.setlist-row--nobody .setlist-cover {
+  filter: grayscale(0.9);
+  opacity: 0.55;
+}
+
+.setlist-round {
+  font-family: var(--font-display);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  text-align: right;
+}
+
+.setlist-cover {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  border: 1px solid rgba(var(--color-white-rgb), 0.1);
+}
+
+.setlist-cover--fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-surface);
+  color: var(--color-accent);
+  opacity: 0.6;
+  font-family: var(--font-display);
+}
+
+.setlist-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.setlist-title {
+  font-weight: 700;
+  font-size: var(--text-base);
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.setlist-artist {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.setlist-chips {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-end;
+}
+
+.setlist-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: var(--radius-full);
+  padding: 0.15rem 0.5rem;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--color-text);
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.chip-title {
+  background: rgba(var(--color-accent-rgb), 0.15);
+  border-color: rgba(var(--color-accent-rgb), 0.35);
+}
+.chip-artist {
+  background: rgba(var(--color-warning-rgb), 0.15);
+  border-color: rgba(var(--color-warning-rgb), 0.35);
+}
+.chip-parfait {
+  background: rgba(var(--color-success-rgb), 0.15);
+  border-color: rgba(var(--color-success-rgb), 0.35);
+}
+.chip-ghost {
+  border: 1px dashed rgba(var(--color-white-rgb), 0.15);
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+.chip-glyph {
+  font-family: var(--font-display);
+  font-size: var(--text-xs);
+}
+.chip-title .chip-glyph {
+  color: var(--color-accent);
+}
+.chip-artist .chip-glyph {
+  color: var(--color-warning);
+}
+.chip-parfait .chip-glyph {
+  color: var(--color-success);
+}
+
+.chip-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: hsl(var(--hue, 200) 95% 62%);
+  box-shadow: 0 0 6px hsl(var(--hue, 200) 95% 62% / 0.7);
+  flex-shrink: 0;
+}
+
+.chip-name {
+  max-width: 9ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chip-time {
+  font-family: var(--font-display);
+  font-size: var(--text-xs);
+  color: var(--color-warning);
+  text-shadow: 0 0 8px rgba(var(--color-warning-rgb), 0.5);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .setlist-section,
+  .setlist-row {
+    animation: none;
+  }
 }
 </style>

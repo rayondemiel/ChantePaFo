@@ -287,6 +287,46 @@ class BlindtestMode(GameMode):
     def get_state(self) -> dict[str, Any]:
         return {**self.state, "total_scores": self.history["total_scores"]}
 
+    def _first_finder(
+        self,
+        answers: dict[str, dict[str, Any]],
+        match_key: str,
+        time_key: str,
+    ) -> dict[str, Any] | None:
+        matched = [a for a in answers.values() if a.get(match_key)]
+        if not matched:
+            return None
+        best = min(matched, key=lambda a: a.get(time_key, a.get("time_ms", 0)))
+        names = {p["id"]: p["name"] for p in self.players}
+        return {
+            "player_id": best["player_id"],
+            "name": names.get(best["player_id"], best["player_id"]),
+            "time_ms": int(best.get(time_key, best.get("time_ms", 0))),
+        }
+
+    def _build_tracklist(self) -> list[dict[str, Any]]:
+        """End-game recap: each played track with who found title/artist first."""
+        tracklist: list[dict[str, Any]] = []
+        for i, round_entry in enumerate(self.history["rounds"]):
+            if i >= len(self.tracks):
+                break
+            track = self.tracks[i]
+            answers = round_entry.get("answers", {})
+            first_title = self._first_finder(answers, "title_match", "title_time_ms")
+            first_artist = self._first_finder(answers, "artist_match", "artist_time_ms")
+            tracklist.append(
+                {
+                    "round": i + 1,
+                    "title": track["title"],
+                    "artist": track["artist"],
+                    "cover_url": track.get("cover_url", ""),
+                    "first_title": first_title,
+                    "first_artist": first_artist,
+                    "nobody_found": first_title is None and first_artist is None,
+                }
+            )
+        return tracklist
+
     async def end(self) -> dict[str, Any]:
         awards = compute_awards(self.history, mode="blindtest")
         return {
@@ -294,6 +334,7 @@ class BlindtestMode(GameMode):
             "awards": awards,
             "rounds": self.history["rounds"],
             "players": self.history["players"],
+            "tracklist": self._build_tracklist(),
         }
 
 

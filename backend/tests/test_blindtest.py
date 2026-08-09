@@ -334,6 +334,66 @@ async def test_blindtest_end() -> None:
 
 
 @pytest.mark.asyncio
+async def test_end_tracklist_reports_first_finders_per_round() -> None:
+    mode = await _started_mode(num_rounds=2, num_players=3)
+    await mode.handle_event("countdown_done", "p0", {})
+    # Round 1 (Thriller / Michael Jackson): p1 snipes the title, p2 completes
+    # the artist, p0 finds nothing.
+    await mode.handle_event("answer", "p1", {"text": "thriller", "time_ms": 1000})
+    await mode.handle_event("answer", "p2", {"text": "michael jackson", "time_ms": 2000})
+    mode.advance_to_reveal()
+    mode.advance_to_pause()
+    mode.advance_to_next_round()
+    # Round 2 (Song1 / Artist1): nobody finds anything.
+    mode.advance_to_reveal()
+    mode.advance_to_pause()
+    mode.advance_to_next_round()
+
+    final = await mode.end()
+    tracklist = final["tracklist"]
+    assert len(tracklist) == 2
+
+    r1 = tracklist[0]
+    assert r1["round"] == 1
+    assert r1["title"] == "Thriller"
+    assert r1["artist"] == "Michael Jackson"
+    assert r1["cover_url"] == "https://cover/0"
+    assert r1["first_title"]["player_id"] == "p1"
+    assert r1["first_title"]["name"] == "Player1"
+    assert r1["first_artist"]["player_id"] == "p2"
+    assert r1["first_artist"]["name"] == "Player2"
+    assert r1["nobody_found"] is False
+
+    r2 = tracklist[1]
+    assert r2["round"] == 2
+    assert r2["title"] == "Song1"
+    assert r2["first_title"] is None
+    assert r2["first_artist"] is None
+    assert r2["nobody_found"] is True
+
+
+@pytest.mark.asyncio
+async def test_end_tracklist_first_title_is_the_earliest_server_time(monkeypatch) -> None:
+    fake = {"now_ms": 1_000_000}
+    monkeypatch.setattr("app.game.blindtest._now_ms", lambda: fake["now_ms"])
+
+    mode = await _started_mode(num_rounds=1, num_players=3)
+    await mode.handle_event("countdown_done", "p0", {})
+    fake["now_ms"] = 1_002_000
+    await mode.handle_event("answer", "p2", {"text": "thriller", "time_ms": 0})
+    fake["now_ms"] = 1_005_000
+    await mode.handle_event("answer", "p1", {"text": "thriller", "time_ms": 0})
+    mode.advance_to_reveal()
+    mode.advance_to_pause()
+    mode.advance_to_next_round()
+
+    final = await mode.end()
+    first_title = final["tracklist"][0]["first_title"]
+    assert first_title["player_id"] == "p2"
+    assert first_title["time_ms"] == 2000
+
+
+@pytest.mark.asyncio
 async def test_round_pause_is_last_round_flag_true_on_final_round() -> None:
     mode = await _started_mode(num_rounds=1)
     await mode.handle_event("countdown_done", "p0", {})

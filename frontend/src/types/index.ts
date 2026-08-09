@@ -73,6 +73,22 @@ export interface Award {
   detail: string
 }
 
+export interface FirstFinder {
+  player_id: string
+  name: string
+  time_ms: number
+}
+
+export interface TracklistEntry {
+  round: number
+  title: string
+  artist: string
+  cover_url: string
+  first_title: FirstFinder | null
+  first_artist: FirstFinder | null
+  nobody_found: boolean
+}
+
 export interface FuzzyResult {
   title_match: boolean
   artist_match: boolean
