@@ -679,6 +679,12 @@ class DeezerClient:
                 playlists_per_query=playlists_per_query,
             )
 
+            # Tag each track with the genre key it was fetched under so the
+            # game engine / ambiance can pick the right palette per round
+            # (Deezer's own genre_id field is unreliable / often missing).
+            for t in tracks:
+                t["genre"] = genre
+
             # Sort by rank desc → most popular first, then take the configured
             # popularity window for this difficulty.
             tracks.sort(key=lambda t: t.get("rank", 0), reverse=True)
@@ -689,6 +695,8 @@ class DeezerClient:
         # mode — and only when the difficulty actually wants top hits.
         if chart_diff is not None:
             chart_tracks = await self.get_chart_tracks(limit=100)
+            for t in chart_tracks:
+                t["genre"] = "all"
             chart_tracks.sort(key=lambda t: t.get("rank", 0), reverse=True)
             all_tracks.extend(_apply_rank_window(chart_tracks, chart_diff["rank_window"]))
 
