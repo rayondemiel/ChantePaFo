@@ -4,6 +4,13 @@ import { ref, readonly, type Ref } from 'vue'
 // for the lifetime of the page. Re-creating one throws InvalidStateError. We
 // also share a single AudioContext app-wide because mobile browsers cap how
 // many can be created — a singleton matches the actual browser model.
+//
+// CORS REQUIREMENT: connectAnalyser only produces non-zero data when the
+// <audio> element either is same-origin OR has crossorigin="anonymous" AND
+// the server returns Access-Control-Allow-Origin. Deezer's preview CDN
+// (cdnt-preview.dzcdn.net) returns ACAO `*`, so blindtest <audio> tags must
+// declare crossorigin="anonymous" — without it the browser fetches as no-cors,
+// taints the response, and silences the whole graph (including destination).
 
 let audioContext: AudioContext | null = null
 let analyser: AnalyserNode | null = null
@@ -24,10 +31,32 @@ function ensureContext(): AudioContext | null {
   if (!Ctor) return null
   try {
     audioContext = new Ctor()
+    registerGestureUnlock()
     return audioContext
   } catch {
     return null
   }
+}
+
+let unlockerRegistered = false
+function registerGestureUnlock(): void {
+  // Chrome's autoplay policy only resumes a suspended AudioContext from
+  // inside a user-gesture call stack. Our connectAnalyser() runs after a
+  // 3s countdown delay, well outside the original "start game" click — so
+  // the inline resume() call is often refused. Catch the next interaction
+  // (any pointerdown/keydown) at the document level and resume there.
+  // Listener removes itself on first fire so it costs nothing afterward.
+  if (unlockerRegistered || typeof document === 'undefined') return
+  unlockerRegistered = true
+  const unlock = () => {
+    audioContext?.resume().catch(() => {})
+    document.removeEventListener('pointerdown', unlock, true)
+    document.removeEventListener('keydown', unlock, true)
+    document.removeEventListener('touchstart', unlock, true)
+  }
+  document.addEventListener('pointerdown', unlock, true)
+  document.addEventListener('keydown', unlock, true)
+  document.addEventListener('touchstart', unlock, true)
 }
 
 function startTickLoop(): void {
@@ -141,4 +170,31 @@ export function useAudio() {
     setIsPlaying,
     disconnect,
   }
+}
+
+// Dev-only debug exposure. Inspect from the console to diagnose FFT issues:
+//   window.__cpfAudio.state()        → 'suspended' | 'running' | 'closed'
+//   window.__cpfAudio.bass()         → current bass level [0..1]
+//   window.__cpfAudio.connected()    → number of <audio> sources wired
+//   window.__cpfAudio.resume()       → manually unlock the AudioContext
+if (typeof window !== 'undefined' && import.meta.env.DEV) {
+  let connectedCount = 0
+  const origConnect = connectAnalyser
+  const wrappedConnect = (el: HTMLAudioElement): AnalyserNode | null => {
+    const r = origConnect(el)
+    if (r) connectedCount += 1
+    return r
+  }
+  ;(window as unknown as Record<string, unknown>).__cpfAudio = {
+    state: () => audioContext?.state ?? 'no-context',
+    bass: () => getBassLevel(),
+    mid: () => getMidLevel(),
+    high: () => getHighLevel(),
+    connected: () => connectedCount,
+    bytes: () => Array.from(frequencyData.value.slice(0, 16)),
+    resume: () => audioContext?.resume(),
+    rafRunning: () => rafRunning,
+  }
+  // Re-export the wrapped connect so the counter stays accurate.
+  ;(window as unknown as Record<string, unknown>).__cpfConnect = wrappedConnect
 }
