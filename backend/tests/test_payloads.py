@@ -25,9 +25,19 @@ def test_reaction_rejects_long_emoji():
         ReactionPayload(code="FUNK4242", emoji="x" * 9)
 
 
+def test_reaction_rejects_emoji_outside_allowlist():
+    with pytest.raises(ValidationError):
+        ReactionPayload(code="FUNK4242", emoji="🎊")
+
+
+def test_reaction_accepts_every_reaction_bar_emoji():
+    for emoji in ["😂", "👏", "💀", "🔥", "😱", "❤️"]:
+        assert ReactionPayload(code="FUNK4242", emoji=emoji).emoji == emoji
+
+
 def test_reaction_rejects_extra_fields():
     with pytest.raises(ValidationError):
-        ReactionPayload(code="FUNK4242", emoji="🎉", extra="nope")
+        ReactionPayload(code="FUNK4242", emoji="👏", extra="nope")
 
 
 def test_soundboard_rejects_unknown_sound():

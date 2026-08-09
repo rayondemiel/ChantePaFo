@@ -464,11 +464,11 @@ async def test_reaction_success(sio_env):
     code = await _create_and_join(sio_env)
 
     sio_env["emitted"].clear()
-    await sio_env["handlers"]["reaction"]("sid-1", {"code": code, "emoji": "🎉"})
+    await sio_env["handlers"]["reaction"]("sid-1", {"code": code, "emoji": "👏"})
 
     reaction_events = [e for e in sio_env["emitted"] if e["event"] == "reaction_received"]
     assert len(reaction_events) == 1
-    assert reaction_events[0]["data"]["emoji"] == "🎉"
+    assert reaction_events[0]["data"]["emoji"] == "👏"
     assert reaction_events[0]["data"]["player_id"] == "test-user-1"
     assert reaction_events[0]["data"]["player_name"] == "alice"
 
@@ -540,7 +540,7 @@ async def test_reaction_not_in_room(sio_env):
     room = await svc.create_room(host_id="test-user-1", host_name="alice")
     code = room["code"]
 
-    await sio_env["handlers"]["reaction"]("sid-1", {"code": code, "emoji": "🎉"})
+    await sio_env["handlers"]["reaction"]("sid-1", {"code": code, "emoji": "👏"})
 
     errors = [e for e in sio_env["emitted"] if e["event"] == "error"]
     assert any("Not in room" in (e["data"] or {}).get("message", "") for e in errors)

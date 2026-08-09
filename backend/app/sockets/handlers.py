@@ -28,6 +28,7 @@ from app.metrics import (
 )
 from app.models import User
 from app.music.deezer import RoomScopedDeezerClient
+from app.reactions.service import format_reaction_event, format_soundboard_event
 from app.rooms.schemas import PartialRoomSettings
 from app.rooms.service import ROOM_TTL, RoomService, public_room
 from app.sockets.payloads import (
@@ -546,11 +547,7 @@ async def _handle_reaction(sid: str, data: object) -> None:
     )
     await sio.emit(
         "reaction_received",
-        {
-            "player_id": user_id,
-            "player_name": username,
-            "emoji": payload.emoji,
-        },
+        format_reaction_event(player_id=user_id, player_name=username, emoji=payload.emoji),
         room=payload.code,
     )
 
@@ -579,11 +576,7 @@ async def _handle_soundboard(sid: str, data: object) -> None:
     )
     await sio.emit(
         "soundboard_played",
-        {
-            "player_id": user_id,
-            "player_name": username,
-            "sound": payload.sound,
-        },
+        format_soundboard_event(player_id=user_id, player_name=username, sound_id=payload.sound),
         room=payload.code,
     )
 

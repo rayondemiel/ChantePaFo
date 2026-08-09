@@ -2,6 +2,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.reactions.service import validate_reaction
+
 # Shared constraints
 CODE_PATTERN = r"^[A-Z]{4}\d{4}$"
 
@@ -60,6 +62,15 @@ class ReactionPayload(_StrictBase):
     @classmethod
     def _upper(cls, v: object) -> object:
         return v.upper() if isinstance(v, str) else v
+
+    @field_validator("emoji")
+    @classmethod
+    def _allowed(cls, v: str) -> str:
+        # Finite allowlist mirroring the frontend ReactionBar — arbitrary
+        # strings would render as floating text on every player's screen.
+        if not validate_reaction(v):
+            raise ValueError("emoji not in the reaction allowlist")
+        return v
 
 
 class SoundboardPayload(_StrictBase):
