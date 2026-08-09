@@ -145,18 +145,15 @@ describe('useRecorder', () => {
     await r.startRecording(60_000)
     await r.stopRecording()
 
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          url: '/uploads/x.webm',
-          sha256: '0300000000000000000000000000000000000000000000000000000000000000',
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        },
-      ),
-    )
+    // Echo back the hash the client sent, like the real backend does — hardcoding
+    // a digest here would tie the test to whichever crypto.subtle is active.
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+      const sent = (init?.headers as Record<string, string>)['X-Content-SHA256']
+      return new Response(JSON.stringify({ url: '/uploads/x.webm', sha256: sent }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    })
 
     const result = await r.uploadRecording()
     expect(result?.url).toBe('/uploads/x.webm')
