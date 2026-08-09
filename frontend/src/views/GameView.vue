@@ -56,20 +56,18 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useGameStore } from '../stores/game'
 import { useRoomStore } from '../stores/room'
-import { useAmbianceStore } from '../stores/ambiance'
 import { useSocket } from '../composables/useSocket'
 import { useAmbiance } from '../composables/useAmbiance'
 import BlindtestRound from '../components/BlindtestRound.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import VolumeControl from '../components/VolumeControl.vue'
-import type { GameState, AmbianceConfig, Award } from '../types'
+import type { GameState, Award } from '../types'
 
 const props = defineProps<{ code: string }>()
 const router = useRouter()
 const auth = useAuthStore()
 const gameStore = useGameStore()
 const roomStore = useRoomStore()
-const ambianceStore = useAmbianceStore()
 const { connect: socketConnect, emit: socketEmit, on, off } = useSocket()
 const { start: startAmbiance, stop: stopAmbiance } = useAmbiance()
 
@@ -103,10 +101,6 @@ function onGameEnded(data: unknown) {
   gameStore.setFinalResults(d)
 }
 
-function onAmbiance(data: unknown) {
-  ambianceStore.setAmbiance(data as AmbianceConfig)
-}
-
 function onLeftGame() {
   gameStore.reset()
   router.push('/')
@@ -131,7 +125,8 @@ onMounted(() => {
   socketConnect(auth.token)
   on('game_state', onGameState)
   on('game_ended', onGameEnded)
-  on('ambiance_update', onAmbiance)
+  // ambiance_update is handled at the App root (App.vue) so it can't race
+  // the route transition into /game.
   on('left_game', onLeftGame)
   on('returned_to_lobby', onReturnedToLobby)
   startAmbiance()
@@ -140,7 +135,6 @@ onMounted(() => {
 onUnmounted(() => {
   off('game_state', onGameState)
   off('game_ended', onGameEnded)
-  off('ambiance_update', onAmbiance)
   off('left_game', onLeftGame)
   off('returned_to_lobby', onReturnedToLobby)
   stopAmbiance()

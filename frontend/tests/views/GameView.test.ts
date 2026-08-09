@@ -84,7 +84,8 @@ describe('GameView', () => {
     const events = socketMock.on.mock.calls.map((c) => c[0])
     expect(events).toContain('game_state')
     expect(events).toContain('game_ended')
-    expect(events).toContain('ambiance_update')
+    // ambiance_update is now registered in App.vue (always-on, survives nav).
+    // GameView no longer subscribes to it — see App.vue's onMounted comment.
     expect(events).toContain('left_game')
     expect(events).toContain('returned_to_lobby')
   })
@@ -163,7 +164,6 @@ describe('GameView', () => {
     const offEvents = socketMock.off.mock.calls.map((c) => c[0])
     expect(offEvents).toContain('game_state')
     expect(offEvents).toContain('game_ended')
-    expect(offEvents).toContain('ambiance_update')
     expect(offEvents).toContain('left_game')
     expect(offEvents).toContain('returned_to_lobby')
   })

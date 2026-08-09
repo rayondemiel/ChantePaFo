@@ -4,12 +4,14 @@ import { useAudio } from './useAudio'
 
 // The store already syncs palette + base intensity into CSS variables
 // (--ambiance-color-1/2, --ambiance-intensity) whenever its config changes.
-// This composable only adds beat-reactive intensity modulation: when audio
-// is playing, --ambiance-intensity pulses with the bass level. When no
-// analyser is connected, it leaves the static intensity untouched.
+// This composable adds beat-reactive intensity modulation on top: when audio
+// plays, --ambiance-intensity pulses ABOVE the static base with the bass
+// level. When the analyser sees silence (or isn't connected), it falls back
+// to the store's base value — never goes below it.
 
-const PULSE_FLOOR = 0.6
-const PULSE_RANGE = 0.8
+// At bass=0 the multiplier is 1 (pulse is invisible → matches static base).
+// At bass=1 the multiplier is 1+PULSE_GAIN. Tune PULSE_GAIN to taste.
+const PULSE_GAIN = 1.0
 
 export function useAmbiance() {
   const store = useAmbianceStore()
@@ -22,12 +24,8 @@ export function useAmbiance() {
     const root = document.documentElement
     const bass = audio.getBassLevel()
     const base = store.config.intensity
-    // No analyser yet → bass is 0; keep the static base so the visual stays
-    // calm during countdown / lobby.
-    if (bass > 0) {
-      const dynamic = base * (PULSE_FLOOR + bass * PULSE_RANGE)
-      root.style.setProperty('--ambiance-intensity', String(Math.min(dynamic, 1)))
-    }
+    const dynamic = base * (1 + bass * PULSE_GAIN)
+    root.style.setProperty('--ambiance-intensity', String(Math.min(dynamic, 1)))
     animFrame = requestAnimationFrame(renderFrame)
   }
 
@@ -41,8 +39,9 @@ export function useAmbiance() {
     running = false
     if (animFrame) cancelAnimationFrame(animFrame)
     animFrame = 0
-    // Reset to the store's static base so the next start() doesn't inherit
-    // a stale pulse value if the audio was paused mid-beat.
+    // Restore the store's static base so the next start() doesn't inherit
+    // a stale pulse value. The store's own watch will also overwrite this
+    // on the next ambiance_update event.
     document.documentElement.style.setProperty(
       '--ambiance-intensity',
       String(store.config.intensity),
@@ -50,6 +49,12 @@ export function useAmbiance() {
   }
 
   function connectAudio(el: HTMLAudioElement): void {
+    // CALLER BEWARE: cross-origin <audio> elements must declare
+    // crossorigin="anonymous" AND the server must return ACAO, otherwise
+    // the browser zeroes the whole graph (silencing playback). Same-origin
+    // sources (e.g. /uploads/*) work without the attribute. Deezer's
+    // preview CDN returns ACAO `*` so blindtest <audio> works as long as
+    // crossorigin="anonymous" is set.
     audio.connectAnalyser(el)
   }
 
