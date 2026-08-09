@@ -229,7 +229,9 @@ async def _handle_disconnect(sid: str) -> None:
     user_id = session.get("user_id") if session else None
     logger.info("client disconnected sid=%s", sid)
     redis = get_redis()
-    room_code = await redis.get(f"player_room:{sid}")
+    # The pool sets decode_responses=True so get() yields str, but the stubs
+    # still widen the return to bytes | str.
+    room_code = cast("str | None", await redis.get(f"player_room:{sid}"))
     if room_code:
         svc = RoomService(redis)
         if user_id:
