@@ -42,7 +42,17 @@ def test_soundboard_accepts_allowed_sound():
 
 @pytest.mark.parametrize(
     "sound",
-    ["applause", "boo", "drumroll", "buzzer", "airhorn", "laugh", "sadtrombone", "crickets", "tada"],
+    [
+        "applause",
+        "boo",
+        "drumroll",
+        "buzzer",
+        "airhorn",
+        "laugh",
+        "sadtrombone",
+        "crickets",
+        "tada",
+    ],
 )
 def test_soundboard_accepts_every_shipped_sound(sound):
     # Mirrors frontend/src/components/Soundboard.vue and public/sounds/*.mp3.
