@@ -456,8 +456,8 @@ function isFirstBonus(playerId: string): boolean {
 interface RankingEntry {
   player_id: string
   name: string
-  match_type: string | null
-  time_ms: number | null
+  match_type: string
+  time_ms: number
 }
 
 const liveRankingFound = computed<RankingEntry[]>(() => {
@@ -468,15 +468,14 @@ const liveRankingFound = computed<RankingEntry[]>(() => {
     .map((f) => ({
       player_id: f.player_id,
       name: playerNames.get(f.player_id) ?? f.name,
-      match_type: f.match_type as string | null,
-      time_ms: f.time_ms as number | null,
+      match_type: f.match_type,
+      time_ms: f.time_ms,
     }))
     .sort((a, b) => {
-      const pa = a.match_type ? (typePriority[a.match_type] ?? 2) : 3
-      const pb = b.match_type ? (typePriority[b.match_type] ?? 2) : 3
+      const pa = typePriority[a.match_type] ?? 2
+      const pb = typePriority[b.match_type] ?? 2
       if (pa !== pb) return pa - pb
-      if (a.time_ms != null && b.time_ms != null) return a.time_ms - b.time_ms
-      return 0
+      return a.time_ms - b.time_ms
     })
 })
 
