@@ -151,8 +151,7 @@ class BlindtestMode(GameMode):
         result["attempts"] = (prev["attempts"] + 1) if prev else 1
 
         # Title timestamp = first answer that matched the title.
-        prev_title_match = bool(prev and prev.get("title_match"))
-        if prev_title_match:
+        if prev is not None and prev.get("title_match"):
             result["title_match"] = True
             result["title_time_ms"] = prev.get("title_time_ms", prev.get("time_ms", 0))
         elif result.get("title_match"):
@@ -170,8 +169,7 @@ class BlindtestMode(GameMode):
         result["artist_match"] = len(all_indices) >= total
 
         # Artist timestamp = the answer that completed the artist (all components).
-        prev_artist_match = bool(prev and prev.get("artist_match"))
-        if prev_artist_match:
+        if prev is not None and prev.get("artist_match"):
             result["artist_time_ms"] = prev.get("artist_time_ms", prev.get("time_ms", 0))
         elif result["artist_match"]:
             result["artist_time_ms"] = answer_time_ms
