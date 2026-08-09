@@ -40,6 +40,15 @@ def test_soundboard_accepts_allowed_sound():
     assert p.sound == "applause"
 
 
+@pytest.mark.parametrize(
+    "sound",
+    ["applause", "boo", "drumroll", "buzzer", "airhorn", "laugh", "sadtrombone", "crickets", "tada"],
+)
+def test_soundboard_accepts_every_shipped_sound(sound):
+    # Mirrors frontend/src/components/Soundboard.vue and public/sounds/*.mp3.
+    assert SoundboardPayload(code="FUNK4242", sound=sound).sound == sound
+
+
 def test_start_game_forbids_host_id_in_payload():
     # host_id comes from the server session, never from client payload.
     with pytest.raises(ValidationError):

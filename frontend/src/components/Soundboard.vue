@@ -1,22 +1,48 @@
 <template>
-  <div class="soundboard" role="group" aria-label="Soundboard">
+  <div ref="rootRef" class="soundboard" @keydown.esc="closeSheet">
     <button
-      v-for="s in SOUNDS"
-      :key="s.id"
+      ref="toggleRef"
       type="button"
-      class="sound-btn"
+      class="soundboard-toggle"
       :class="{
-        'sound-btn-glow': glowing === s.id,
-        'sound-btn-recharging': recharging === s.id,
+        'soundboard-toggle--open': open,
+        'sound-btn-glow': glowing !== null && !open,
       }"
-      :data-test="`sound-${s.id}`"
-      :aria-disabled="recharging === s.id ? 'true' : undefined"
-      :aria-label="`Jouer ${s.label}`"
-      @click="trigger(s.id)"
+      data-test="soundboard-toggle"
+      :aria-expanded="open ? 'true' : 'false'"
+      aria-haspopup="true"
+      aria-label="Soundboard"
+      @click="open = !open"
     >
-      <span aria-hidden="true">{{ s.emoji }}</span>
-      {{ s.label }}
+      <span aria-hidden="true">📣</span>
     </button>
+    <Transition name="sheet">
+      <div
+        v-if="open"
+        class="sound-sheet"
+        role="group"
+        aria-label="Soundboard"
+        data-test="sound-sheet"
+      >
+        <button
+          v-for="s in SOUNDS"
+          :key="s.id"
+          type="button"
+          class="sound-btn"
+          :class="{
+            'sound-btn-glow': glowing === s.id,
+            'sound-btn-recharging': recharging === s.id,
+          }"
+          :data-test="`sound-${s.id}`"
+          :aria-disabled="recharging === s.id ? 'true' : undefined"
+          :aria-label="`Jouer ${s.label}`"
+          @click="trigger(s.id)"
+        >
+          <span aria-hidden="true">{{ s.emoji }}</span>
+          {{ s.label }}
+        </button>
+      </div>
+    </Transition>
   </div>
   <!-- Attributed event capsule: who × what, in one stable glanceable spot.
        Permanently mounted so aria-live announcements are reliable. -->
@@ -37,7 +63,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { useSocket } from '../composables/useSocket'
 import { useRoomStore } from '../stores/room'
 import { getPlayerHue } from '../lib/playerHue'
@@ -50,23 +76,53 @@ const SOUNDS = [
   { id: 'drumroll', emoji: '🥁', label: 'Roulement' },
   { id: 'buzzer', emoji: '❌', label: 'Buzzer' },
   { id: 'airhorn', emoji: '📯', label: 'Airhorn' },
+  { id: 'laugh', emoji: '😂', label: 'Rires' },
+  { id: 'sadtrombone', emoji: '🎺', label: 'Womp womp' },
+  { id: 'crickets', emoji: '🦗', label: 'Grillons' },
+  { id: 'tada', emoji: '🎉', label: 'Tada !' },
 ] as const
 
 const COOLDOWN_MS = 1200
 const GLOW_MS = 800
 const CAPSULE_MS = 1400
 
-// Sound you can feel while the mp3 files haven't shipped (and after, too).
+// Sound you can feel — haptic texture per sound.
 const VIBRATIONS: Record<string, number[]> = {
   applause: [20, 40, 20, 40, 20],
   boo: [80],
   drumroll: [15, 30, 15, 30, 15, 30, 15],
   buzzer: [120],
   airhorn: [40, 60, 40, 60, 80],
+  laugh: [30, 50, 30, 50, 30],
+  sadtrombone: [250],
+  crickets: [15, 180, 15],
+  tada: [30, 40, 90],
 }
 
 const { emit, on, off } = useSocket()
 const roomStore = useRoomStore()
+
+const open = ref(false)
+const rootRef = ref<HTMLElement | null>(null)
+const toggleRef = ref<HTMLButtonElement | null>(null)
+
+function closeSheet(): void {
+  if (!open.value) return
+  open.value = false
+  toggleRef.value?.focus()
+}
+
+function onDocPointerDown(e: Event): void {
+  if (rootRef.value && !rootRef.value.contains(e.target as Node)) {
+    open.value = false
+  }
+}
+
+// Listen only while the sheet is open — a party page has enough going on.
+watch(open, (now) => {
+  if (now) document.addEventListener('pointerdown', onDocPointerDown, true)
+  else document.removeEventListener('pointerdown', onDocPointerDown, true)
+})
 
 const cooldown = ref(false)
 // Which chip shows the recharge treatment — only the pressed one; the rest
@@ -134,6 +190,7 @@ function onSoundboardPlayed(data: unknown): void {
 onMounted(() => on('soundboard_played', onSoundboardPlayed))
 onUnmounted(() => {
   off('soundboard_played', onSoundboardPlayed)
+  document.removeEventListener('pointerdown', onDocPointerDown, true)
   if (glowTimer) clearTimeout(glowTimer)
   if (capsuleTimer) clearTimeout(capsuleTimer)
 })
@@ -141,11 +198,75 @@ onUnmounted(() => {
 
 <style scoped>
 .soundboard {
+  position: relative;
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-sm);
   justify-content: center;
   align-items: center;
+}
+
+.soundboard-toggle {
+  width: var(--size-touch);
+  height: var(--size-touch);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition:
+    transform 0.15s,
+    background 0.15s,
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+
+.soundboard-toggle:hover {
+  background: var(--color-surface-hover);
+  transform: scale(1.1);
+}
+
+.soundboard-toggle:active {
+  transform: scale(0.9);
+}
+
+.soundboard-toggle--open {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 12px rgba(var(--color-accent-rgb), 0.4);
+}
+
+/* Glass sheet floating above the social bar */
+.sound-sheet {
+  position: absolute;
+  bottom: calc(100% + var(--space-sm));
+  left: 50%;
+  transform: translateX(-50%);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, auto));
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  width: max-content;
+  max-width: min(92vw, 480px);
+  background: rgba(var(--color-surface-rgb), 0.88);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 12px 40px rgba(var(--color-bg-rgb), 0.55);
+  z-index: 6;
+}
+
+.sheet-enter-active,
+.sheet-leave-active {
+  transition:
+    opacity 0.2s var(--ease-smooth),
+    transform 0.2s var(--ease-smooth);
+}
+
+.sheet-enter-from,
+.sheet-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(6px);
 }
 
 /* Per UX spec: bounce + fading primary glow, no white flash. */
@@ -261,6 +382,10 @@ onUnmounted(() => {
   .sound-btn-recharging {
     transition: none;
     transform: none;
+  }
+  .sheet-enter-active,
+  .sheet-leave-active {
+    transition: none;
   }
 }
 </style>

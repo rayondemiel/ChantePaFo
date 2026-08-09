@@ -5,9 +5,19 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 # Shared constraints
 CODE_PATTERN = r"^[A-Z]{4}\d{4}$"
 
-# Finite allowlist matching the sounds the frontend will eventually ship.
-# Kept in sync with `frontend/public/sounds/*.mp3` when they land (Task 27).
-AllowedSound = Literal["applause", "boo", "drumroll", "buzzer", "airhorn"]
+# Finite allowlist matching the shipped sounds — kept in sync with
+# `frontend/public/sounds/*.mp3` and `frontend/src/components/Soundboard.vue`.
+AllowedSound = Literal[
+    "applause",
+    "boo",
+    "drumroll",
+    "buzzer",
+    "airhorn",
+    "laugh",
+    "sadtrombone",
+    "crickets",
+    "tada",
+]
 
 
 class _StrictBase(BaseModel):

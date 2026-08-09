@@ -58,6 +58,12 @@ function playedHandler(): (data: unknown) => void {
   return call![1] as (data: unknown) => void
 }
 
+type Wrapper = ReturnType<typeof mount<typeof Soundboard>>
+
+async function openSheet(wrapper: Wrapper): Promise<void> {
+  await wrapper.get('[data-test="soundboard-toggle"]').trigger('click')
+}
+
 describe('Soundboard', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
@@ -74,15 +80,52 @@ describe('Soundboard', () => {
     vi.useRealTimers()
   })
 
-  it('renders the five allowed sounds', () => {
+  it('starts collapsed: only the toggle is visible, no sound chips', () => {
     setupRoom()
     const wrapper = mount(Soundboard)
-    expect(wrapper.findAll('.sound-btn')).toHaveLength(5)
+    expect(wrapper.get('[data-test="soundboard-toggle"]').attributes('aria-expanded')).toBe('false')
+    expect(wrapper.findAll('.sound-btn')).toHaveLength(0)
+  })
+
+  it('opens the sheet with all nine sounds on toggle click', async () => {
+    setupRoom()
+    const wrapper = mount(Soundboard)
+    await openSheet(wrapper)
+    expect(wrapper.get('[data-test="soundboard-toggle"]').attributes('aria-expanded')).toBe('true')
+    expect(wrapper.findAll('.sound-btn')).toHaveLength(9)
+  })
+
+  it('closes the sheet on Escape', async () => {
+    setupRoom()
+    const wrapper = mount(Soundboard)
+    await openSheet(wrapper)
+    await wrapper.get('[data-test="sound-sheet"]').trigger('keydown', { key: 'Escape' })
+    expect(wrapper.find('[data-test="sound-sheet"]').exists()).toBe(false)
+  })
+
+  it('closes the sheet on an outside pointerdown', async () => {
+    setupRoom()
+    const wrapper = mount(Soundboard)
+    await openSheet(wrapper)
+    document.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    await nextTick()
+    expect(wrapper.find('[data-test="sound-sheet"]').exists()).toBe(false)
+  })
+
+  it('glows the toggle when a sound is received while collapsed', async () => {
+    setupRoom()
+    const wrapper = mount(Soundboard)
+
+    playedHandler()({ player_id: 'u2', player_name: 'Bob', sound: 'tada' })
+    await nextTick()
+
+    expect(wrapper.get('[data-test="soundboard-toggle"]').classes()).toContain('sound-btn-glow')
   })
 
   it('emits soundboard with exactly code and sound, without playing locally', async () => {
     setupRoom()
     const wrapper = mount(Soundboard)
+    await openSheet(wrapper)
     await wrapper.get('[data-test="sound-drumroll"]').trigger('click')
 
     expect(socketMock.emit).toHaveBeenCalledOnce()
@@ -96,6 +139,7 @@ describe('Soundboard', () => {
 
   it('does not emit without a room', async () => {
     const wrapper = mount(Soundboard)
+    await openSheet(wrapper)
     await wrapper.get('[data-test="sound-applause"]').trigger('click')
     expect(socketMock.emit).not.toHaveBeenCalled()
   })
@@ -126,6 +170,7 @@ describe('Soundboard', () => {
   it('shows an attributed event capsule (hue, name, sound) and glows the matching button', async () => {
     setupRoom()
     const wrapper = mount(Soundboard)
+    await openSheet(wrapper)
 
     playedHandler()({ player_id: 'u2', player_name: 'Bob', sound: 'drumroll' })
     await nextTick()
@@ -158,6 +203,7 @@ describe('Soundboard', () => {
   it('recharges only the pressed chip, keeping the rest of the board alive', async () => {
     setupRoom()
     const wrapper = mount(Soundboard)
+    await openSheet(wrapper)
     await wrapper.get('[data-test="sound-applause"]').trigger('click')
 
     const pressed = wrapper.get('[data-test="sound-applause"]')
@@ -202,6 +248,7 @@ describe('Soundboard', () => {
     vi.useFakeTimers()
     setupRoom()
     const wrapper = mount(Soundboard)
+    await openSheet(wrapper)
 
     await wrapper.get('[data-test="sound-applause"]').trigger('click')
     await wrapper.get('[data-test="sound-boo"]').trigger('click')
