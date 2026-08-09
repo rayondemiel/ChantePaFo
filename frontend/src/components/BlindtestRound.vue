@@ -33,19 +33,28 @@
 
         <Transition name="phase" mode="out-in">
           <div v-if="isAnswerPhase" :key="'answer-' + phase" class="answer-stage">
-            <div v-if="phase === 'playing' && !locallyFound" class="mystery-orb" aria-hidden="true">
-              <div class="synth-ring synth-ring-3"></div>
-              <div class="synth-ring synth-ring-2"></div>
-              <div class="synth-ring synth-ring-1"></div>
-              <div class="synth-sun">
-                <span class="orb-symbol">&#9835;</span>
+            <!-- Hero cluster: the countdown anchors to the orb/reveal, not to
+                 the stage — the stage now stretches to fill the screen and an
+                 absolute top-right there strands the timer far from the action. -->
+            <div class="stage-hero">
+              <div
+                v-if="phase === 'playing' && !locallyFound"
+                class="mystery-orb"
+                aria-hidden="true"
+              >
+                <div class="synth-ring synth-ring-3"></div>
+                <div class="synth-ring synth-ring-2"></div>
+                <div class="synth-ring synth-ring-1"></div>
+                <div class="synth-sun">
+                  <span class="orb-symbol">&#9835;</span>
+                </div>
+                <div class="synth-sonar"></div>
               </div>
-              <div class="synth-sonar"></div>
-            </div>
-            <div v-else-if="showReveal" class="reveal anim-reveal-slide">
-              <img v-if="revealCoverUrl" class="reveal-cover" :src="revealCoverUrl" alt="" />
-              <h2 class="reveal-title text-display">{{ revealTitle }}</h2>
-              <p class="reveal-artist">{{ revealArtist }}</p>
+              <div v-else-if="showReveal" class="reveal anim-reveal-slide">
+                <img v-if="revealCoverUrl" class="reveal-cover" :src="revealCoverUrl" alt="" />
+                <h2 class="reveal-title text-display">{{ revealTitle }}</h2>
+                <p class="reveal-artist">{{ revealArtist }}</p>
+              </div>
             </div>
             <CircularCountdown
               v-if="phase === 'playing'"
@@ -705,6 +714,10 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
+  /* The stage stretches (flex: 1) to fill the game body — center its
+     content vertically so the free height frames the orb/waveform/input
+     instead of pooling below them. */
+  justify-content: center;
   gap: var(--space-lg);
   width: 100%;
   flex: 1;
@@ -881,10 +894,19 @@ onBeforeUnmount(() => {
   display: none;
 }
 
+.stage-hero {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .playing-countdown {
+  /* Pinned in the game area's top-right corner (the answer stage fills the
+     whole content column) — far from the orb's rings and sonar ping. */
   position: absolute;
-  top: var(--space-sm);
-  right: var(--space-sm);
+  top: var(--space-md);
+  right: var(--space-md);
   z-index: 2;
 }
 
@@ -1734,7 +1756,7 @@ onBeforeUnmount(() => {
 
 .layout-desktop .zone-content {
   min-height: 0;
-  justify-content: flex-start;
+  justify-content: center;
   padding: var(--space-lg) clamp(var(--space-md), 2vw, var(--space-xl));
 }
 
