@@ -118,8 +118,16 @@ const liveLevels = computed<number[] | null>(() => {
   if (data.length === 0) return null
   let energy = 0
   const levels = Array.from({ length: BAR_COUNT }, (_, i) => {
-    const lo = Math.floor((i * data.length) / BAR_COUNT)
-    const hi = Math.max(lo + 1, Math.floor(((i + 1) * data.length) / BAR_COUNT))
+    // Log-frequency mapping: music packs its energy into the low FFT bins,
+    // so a linear split lights a handful of left bars and leaves the rest
+    // flat (looks broken). Exponentially wider ranges per bar give the
+    // classic full-width equalizer read.
+    const lo =
+      i === 0 ? 0 : Math.min(data.length - 1, Math.floor(Math.pow(data.length, i / BAR_COUNT)))
+    const hi = Math.max(
+      lo + 1,
+      Math.min(data.length, Math.ceil(Math.pow(data.length, (i + 1) / BAR_COUNT))),
+    )
     const slice = data.subarray(lo, hi)
     let sum = 0
     slice.forEach((v) => {
@@ -132,13 +140,24 @@ const liveLevels = computed<number[] | null>(() => {
   return energy > 0 ? levels : null
 })
 
+// Music rolls off toward the treble — without compensation the right end of
+// the strip stays flat. Gain ramps from 1× (bass) to 1 + HIGH_BOOST (treble).
+const HIGH_BOOST = 2
+
 const bars = computed(() => {
   const live = liveLevels.value
   const source = live ?? STATIC_LEVELS
   return source.map((level, i) => {
-    // sqrt keeps quiet bands visible (perceptual loudness), the 0.12 floor
-    // keeps the strip from ever looking dead between beats.
-    const h = (live ? 0.12 + 0.88 * Math.sqrt(level) : level) * 48
+    let h: number
+    if (live) {
+      const tilt = 1 + HIGH_BOOST * Math.pow(i / (BAR_COUNT - 1), 1.2)
+      const shaped = Math.min(1, level * tilt)
+      // pow 0.8 keeps quiet bands visible without sqrt's blob-flattening
+      // compression; the 0.1 floor keeps the strip alive between beats.
+      h = (0.1 + 0.9 * Math.pow(shaped, 0.8)) * 48
+    } else {
+      h = level * 48
+    }
     return {
       x: i * barWidth,
       y: 48 - h,

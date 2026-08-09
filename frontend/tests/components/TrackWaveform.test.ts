@@ -75,6 +75,32 @@ describe('TrackWaveform', () => {
       expect(left).toBeGreaterThan(right * 2)
     })
 
+    it('spreads low-frequency energy across the left third (log frequency mapping)', async () => {
+      const wrapper = mountWaveform({ frozen: false })
+      const bytes = new Uint8Array(128)
+      bytes.fill(255, 1, 5) // bins 1-4 only: the bottom of the musical range
+      audioMock.__setFrequencyData(bytes)
+      await nextTick()
+
+      // A linear bin split lights barely 2 bars and leaves the strip flat —
+      // the "broken spectrum" look. Log mapping gives them a whole region.
+      const lit = barHeights(wrapper).filter((h) => h > 10).length
+      expect(lit).toBeGreaterThanOrEqual(6)
+    })
+
+    it('boosts the high bars to compensate the natural spectral rolloff', async () => {
+      const wrapper = mountWaveform({ frozen: false })
+      const bytes = new Uint8Array(128)
+      bytes.fill(100) // uniform energy across the whole spectrum
+      audioMock.__setFrequencyData(bytes)
+      await nextTick()
+
+      const heights = barHeights(wrapper)
+      // Without a high-frequency tilt, uniform input renders one flat blob;
+      // the treble end must clearly rise above the bass end.
+      expect(heights[39]).toBeGreaterThan(heights[0] * 1.4)
+    })
+
     it('falls back to the static shape when the spectrum is silent', async () => {
       const wrapper = mountWaveform({ frozen: false })
       const staticHeights = barHeights(wrapper)
