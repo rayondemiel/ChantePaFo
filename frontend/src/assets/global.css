@@ -316,9 +316,12 @@ body {
   border-radius: 50%;
   filter: blur(80px);
   opacity: var(--ambiance-intensity);
+  /* Opacity must follow the per-frame beat envelope from useAmbiance — a
+     long transition here low-passes the pulse into mush. Palette changes
+     keep their slow blend. */
   transition:
     background 0.8s ease,
-    opacity 0.5s ease;
+    opacity 0.12s ease-out;
   pointer-events: none;
   z-index: 0;
 }
@@ -334,7 +337,7 @@ body {
   opacity: calc(var(--ambiance-intensity) * 0.7);
   transition:
     background 0.8s ease,
-    opacity 0.5s ease;
+    opacity 0.12s ease-out;
   pointer-events: none;
   z-index: 0;
 }
@@ -352,6 +355,11 @@ body {
     transparent
   );
   opacity: var(--ambiance-intensity);
+  /* Grows with the beat envelope (useAmbiance writes --ambiance-pulse each
+     frame while music plays); stays a flat 3px line for reduced-motion
+     users since the pulse var then never leaves 0. */
+  transform-origin: bottom;
+  transform: scaleY(calc(1 + var(--ambiance-pulse, 0) * 2));
   pointer-events: none;
   z-index: 0;
 }

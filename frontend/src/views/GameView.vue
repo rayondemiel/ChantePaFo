@@ -259,7 +259,9 @@ onUnmounted(() => {
   background: var(--ambiance-color-1);
   filter: blur(90px);
   opacity: calc(var(--ambiance-intensity) * 0.35);
-  animation: ambient-drift-1 20s ease-in-out infinite alternate;
+  /* Drift period scales with the track bpm (40 beats per crossing). */
+  animation: ambient-drift-1 calc(var(--ambiance-pulse-speed, 0.5s) * 40) ease-in-out infinite
+    alternate;
 }
 
 .ambient-orb-2 {
@@ -270,7 +272,8 @@ onUnmounted(() => {
   background: var(--ambiance-color-2);
   filter: blur(70px);
   opacity: calc(var(--ambiance-intensity) * 0.25);
-  animation: ambient-drift-2 25s ease-in-out infinite alternate;
+  animation: ambient-drift-2 calc(var(--ambiance-pulse-speed, 0.5s) * 50) ease-in-out infinite
+    alternate;
 }
 
 .zone-content {
