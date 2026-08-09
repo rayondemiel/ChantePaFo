@@ -35,7 +35,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 
 const props = withDefaults(
   defineProps<{
@@ -57,8 +57,8 @@ let startedAt = 0
 let elapsedAtPause = 0
 let finishedFired = false
 let lastDisplaySecond = Math.ceil(props.duration)
-const uid = Math.random().toString(36).slice(2, 10)
-const gradientId = `circular-countdown-gradient-${uid}`
+// Per-instance id so several countdowns on screen don't share a <linearGradient>.
+const gradientId = `circular-countdown-gradient-${useId()}`
 
 const displaySeconds = computed(() => Math.ceil(remainingMs.value / 1000))
 const progress = computed(() => {
