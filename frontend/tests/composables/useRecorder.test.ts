@@ -108,11 +108,10 @@ describe('useRecorder', () => {
     installFakeMediaDevices(stopCalls)
     installBlobArrayBuffer()
     installCryptoSubtle()
-    // URL.createObjectURL doesn't exist in jsdom by default.
-    if (typeof URL.createObjectURL !== 'function') {
-      URL.createObjectURL = vi.fn(() => 'blob:fake')
-      URL.revokeObjectURL = vi.fn()
-    }
+    // Always stub, never polyfill: where jsdom does implement createObjectURL it
+    // returns a random blob: URL, and the assertions need a predictable value.
+    URL.createObjectURL = vi.fn(() => 'blob:fake')
+    URL.revokeObjectURL = vi.fn()
   })
 
   afterEach(() => {
