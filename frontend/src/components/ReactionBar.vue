@@ -1,5 +1,5 @@
 <template>
-  <div class="reaction-bar" role="group" aria-label="Réactions emoji">
+  <div class="reaction-bar" role="toolbar" aria-label="Réactions emoji">
     <button
       v-for="r in REACTIONS"
       :key="r"
@@ -66,6 +66,8 @@ function send(emoji: string): void {
 }
 
 function spawnX(): number {
+  // Math.random is fine here: this only picks where a decorative emoji drifts
+  // on screen. Identity and ordering come from the server, never from here.
   // While players are heads-down answering, floats stay in the side gutters
   // so they geometrically cannot cross the input, waveform or countdown.
   if (gameStore.state?.phase === 'playing') {
