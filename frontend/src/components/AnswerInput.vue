@@ -15,8 +15,12 @@
       spellcheck="false"
       @keydown.enter="onSubmit"
     />
-    <div v-if="displayFeedback" :key="feedbackKey" class="feedback-slot">
-      <span :class="displayFeedback.cls">{{ displayFeedback.label }}</span>
+    <!-- Always mounted: reserving the slot keeps the input from jumping
+         when feedback appears or fades. -->
+    <div class="feedback-slot" aria-live="polite">
+      <span v-if="displayFeedback" :key="feedbackKey" :class="displayFeedback.cls">{{
+        displayFeedback.label
+      }}</span>
     </div>
   </div>
 </template>
@@ -168,7 +172,7 @@ onBeforeUnmount(() => {
 }
 
 .feedback-slot {
-  min-height: 28px;
+  min-height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;

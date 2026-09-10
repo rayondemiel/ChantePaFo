@@ -1,5 +1,9 @@
 <template>
-  <ol class="podium" role="list" aria-label="Top 3 du round">
+  <p v-if="winners.length === 0" class="podium-empty" role="status">
+    <span class="podium-empty-glyph" aria-hidden="true">🦗</span>
+    Personne n'a trouvé titre + artiste
+  </p>
+  <ol v-else class="podium" role="list" aria-label="Top 3 du round">
     <li
       v-for="slot in slots"
       :key="slot.rank"
@@ -70,6 +74,25 @@ function slotLabel(slot: PodiumSlot): string {
 </script>
 
 <style scoped>
+.podium-empty {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 0.5rem 1rem;
+  border: 1px dashed rgba(var(--color-white-rgb), 0.18);
+  border-radius: var(--radius-full);
+  color: var(--color-text-muted);
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+.podium-empty-glyph {
+  font-size: 1.2em;
+}
+
 .podium {
   list-style: none;
   padding: 0;

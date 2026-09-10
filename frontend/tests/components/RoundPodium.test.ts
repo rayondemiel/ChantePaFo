@@ -37,10 +37,10 @@ describe('RoundPodium', () => {
     expect(wrapper.text()).toContain('Alice')
   })
 
-  it('renders three placeholders with empty array', () => {
+  it('shows a single empty state instead of three placeholders when nobody won', () => {
     const wrapper = mount(RoundPodium, { props: { winners: [] } })
-    const placeholders = wrapper.findAll('.podium-slot.placeholder')
-    expect(placeholders).toHaveLength(3)
+    expect(wrapper.findAll('.podium-slot')).toHaveLength(0)
+    expect(wrapper.find('.podium-empty').text()).toContain('Personne')
   })
 
   it('formats times correctly (3200ms → "3.2s")', () => {

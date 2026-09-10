@@ -1,14 +1,17 @@
 <template>
-  <div class="game-view game-layout">
+  <div
+    class="game-view game-layout"
+    :class="{ 'game-view--locked': gameStore.state && gameStore.state.phase !== 'finished' }"
+  >
     <div v-if="!gameStore.state" class="waiting">
       <p>Chargement...</p>
     </div>
     <template v-else>
       <div v-if="gameStore.state.phase !== 'finished'" class="zone-info">
         <div class="zone-info-main">
-          <span class="text-display">{{ phaseName }}</span>
+          <span class="phase-name text-display">{{ phaseName }}</span>
           <span v-if="gameStore.state.current_round !== undefined" class="round-info">
-            Round {{ (gameStore.state.current_round as number) + 1 }} /
+            Manche {{ (gameStore.state.current_round as number) + 1 }} /
             {{ gameStore.state.total_rounds }}
           </span>
         </div>
@@ -73,7 +76,7 @@ import ConfirmDialog from '../components/ConfirmDialog.vue'
 import ReactionBar from '../components/ReactionBar.vue'
 import Soundboard from '../components/Soundboard.vue'
 import VolumeControl from '../components/VolumeControl.vue'
-import type { GameState, Award } from '../types'
+import type { GameState, Award, RoomState } from '../types'
 
 const props = defineProps<{ code: string }>()
 const router = useRouter()
@@ -92,6 +95,8 @@ const phaseName = computed(() => {
   const map: Record<string, string> = {
     countdown: 'Prêt ?',
     playing: 'À toi de jouer !',
+    playing_reveal: 'Révélation',
+    round_pause: 'Manche suivante',
     round_result: 'Résultats',
     finished: 'Résultats',
     listening: 'Écoute...',
@@ -106,6 +111,13 @@ const phaseName = computed(() => {
 
 function onGameState(data: unknown) {
   gameStore.setState(data as GameState)
+}
+
+// Roster changes mid-game (a quit, a host handover) must reach the game
+// screen too: the finished ceremony decides who gets the replay buttons
+// from roomStore.isHost, and it must not stay frozen on the lobby snapshot.
+function onRoomUpdated(data: unknown) {
+  roomStore.setRoom(data as RoomState)
 }
 
 function onGameEnded(data: unknown) {
@@ -137,6 +149,7 @@ onMounted(() => {
   socketConnect(auth.token)
   on('game_state', onGameState)
   on('game_ended', onGameEnded)
+  on('room_updated', onRoomUpdated)
   // ambiance_update is handled at the App root (App.vue) so it can't race
   // the route transition into /game.
   on('left_game', onLeftGame)
@@ -147,6 +160,7 @@ onMounted(() => {
 onUnmounted(() => {
   off('game_state', onGameState)
   off('game_ended', onGameEnded)
+  off('room_updated', onRoomUpdated)
   off('left_game', onLeftGame)
   off('returned_to_lobby', onReturnedToLobby)
   stopAmbiance()
@@ -204,8 +218,8 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   border: 1px solid rgba(var(--color-error-rgb), 0.3);
   border-radius: var(--radius-full);
   background: rgba(var(--color-error-rgb), 0.08);
@@ -326,11 +340,49 @@ onUnmounted(() => {
   pointer-events: none;
 }
 
+.phase-name {
+  white-space: nowrap;
+}
+
+@media (max-width: 899px) {
+  .btn-quit {
+    width: 48px;
+    height: 48px;
+  }
+  /* Phones: the header is one line — phase + round on the left, a compact
+     volume pill and the quit button on the right. */
+  .zone-info {
+    padding: var(--space-sm) var(--space-md);
+  }
+  .zone-info-main {
+    flex: 1 1 auto;
+  }
+  .phase-name {
+    font-size: var(--text-base);
+  }
+  .round-info {
+    margin-left: 0;
+  }
+  .zone-info-volume :deep(.volume-slider) {
+    width: clamp(56px, 16vw, 110px);
+  }
+}
+
 @media (min-width: 900px) {
   .zone-social {
     flex-direction: row;
     justify-content: center;
     gap: var(--space-lg);
+  }
+  /* Desktop convention: interactive phases are locked to the viewport — the
+     page never scrolls; the round content scrolls internally if it has to.
+     The finished ceremony is the one long, scrollable screen. */
+  .game-view--locked {
+    height: 100vh;
+    min-height: 0;
+  }
+  .game-view--locked .zone-content {
+    min-height: 0;
   }
 }
 

@@ -138,55 +138,75 @@
             <h2 class="finished-title text-display text-gradient">Bien joué à toutes et tous !</h2>
 
             <div class="finished-body" :class="{ 'finished-body--desktop': !isMobile }">
-              <div class="finished-main">
-                <!-- Game Podium — top 3 overall scorers -->
-                <div v-if="topThree.length > 0" class="game-podium" aria-label="Podium final">
-                  <template v-for="(slot, slotIdx) in podiumSlots" :key="slotIdx">
-                    <div
-                      v-if="slot"
-                      class="podium-block"
-                      :class="[`podium-rank-${slot.rank}`, { 'podium-champion': slot.rank === 1 }]"
-                      :style="{
-                        '--hue': slot.hue,
-                        '--podium-delay': `${slot.rank === 2 ? 0 : slot.rank === 1 ? 0.3 : 0.6}s`,
-                      }"
-                    >
-                      <span class="podium-medal" aria-hidden="true">{{
-                        slot.rank === 1
-                          ? '\uD83E\uDD47'
-                          : slot.rank === 2
-                            ? '\uD83E\uDD48'
-                            : '\uD83E\uDD49'
-                      }}</span>
-                      <span v-if="slot.rank === 1" class="podium-crown" aria-hidden="true"
-                        >&#128081;</span
-                      >
-                      <span
-                        class="podium-name"
-                        :class="{ 'podium-name-champion': slot.rank === 1 }"
-                        >{{ slot.name }}</span
-                      >
-                      <span class="podium-score">{{ slot.score }} pts</span>
-                      <div class="podium-bar" aria-hidden="true"></div>
-                    </div>
-                    <div
-                      v-else
-                      class="podium-block podium-empty"
-                      :class="`podium-rank-${slotIdx === 0 ? 2 : slotIdx === 2 ? 3 : 1}`"
-                    >
-                      <span class="podium-medal" aria-hidden="true">{{
-                        slotIdx === 0
+              <!-- Game Podium — top 3 overall scorers -->
+              <div v-if="topThree.length > 0" class="game-podium" aria-label="Podium final">
+                <template v-for="(slot, slotIdx) in podiumSlots" :key="slotIdx">
+                  <div
+                    v-if="slot"
+                    class="podium-block"
+                    :class="[`podium-rank-${slot.rank}`, { 'podium-champion': slot.rank === 1 }]"
+                    :style="{
+                      '--hue': slot.hue,
+                      '--podium-delay': `${slot.rank === 2 ? 0 : slot.rank === 1 ? 0.3 : 0.6}s`,
+                    }"
+                  >
+                    <span class="podium-medal" aria-hidden="true">{{
+                      slot.rank === 1
+                        ? '\uD83E\uDD47'
+                        : slot.rank === 2
                           ? '\uD83E\uDD48'
-                          : slotIdx === 2
-                            ? '\uD83E\uDD49'
-                            : '\uD83E\uDD47'
-                      }}</span>
-                      <span class="podium-name">&mdash;</span>
-                      <div class="podium-bar" aria-hidden="true"></div>
-                    </div>
-                  </template>
-                </div>
+                          : '\uD83E\uDD49'
+                    }}</span>
+                    <span v-if="slot.rank === 1" class="podium-crown" aria-hidden="true"
+                      >&#128081;</span
+                    >
+                    <span
+                      class="podium-name"
+                      :class="{ 'podium-name-champion': slot.rank === 1 }"
+                      >{{ slot.name }}</span
+                    >
+                    <span class="podium-score">{{ slot.score }} pts</span>
+                    <div class="podium-bar" aria-hidden="true"></div>
+                  </div>
+                  <div
+                    v-else
+                    class="podium-block podium-empty"
+                    :class="`podium-rank-${slotIdx === 0 ? 2 : slotIdx === 2 ? 3 : 1}`"
+                  >
+                    <span class="podium-medal" aria-hidden="true">{{
+                      slotIdx === 0
+                        ? '\uD83E\uDD48'
+                        : slotIdx === 2
+                          ? '\uD83E\uDD49'
+                          : '\uD83E\uDD47'
+                    }}</span>
+                    <span class="podium-name">&mdash;</span>
+                    <div class="podium-bar" aria-hidden="true"></div>
+                  </div>
+                </template>
+              </div>
 
+              <!-- Classement + host actions: sidebar on desktop (always in
+                   view), right under the podium on mobile so the result is
+                   the second thing a guest sees, not the last. -->
+              <div class="finished-side">
+                <div class="final-scoreboard">
+                  <h3 class="final-scoreboard-heading text-display">Classement</h3>
+                  <ScoreBoard
+                    :scores="finalDisplayScores"
+                    :players="playerMap"
+                    class="scoreboard-final"
+                  />
+                </div>
+                <FinishedActions
+                  v-if="!isMobile"
+                  :is-host="isHost"
+                  @back="onBackToLobby"
+                  @replay="onReplay"
+                />
+              </div>
+
+              <div class="finished-main">
                 <!-- Awards ceremony -->
                 <div v-if="displayAwards.length > 0" class="awards-ceremony">
                   <h3 class="awards-heading text-display">Awards</h3>
@@ -293,39 +313,12 @@
                   </ol>
                 </div>
 
-                <!-- Action buttons centered under podium/awards -->
-                <div class="finished-actions">
-                  <template v-if="isHost">
-                    <button
-                      type="button"
-                      class="btn btn-secondary"
-                      data-test="back-lobby"
-                      @click="onBackToLobby"
-                    >
-                      Retour au lobby
-                    </button>
-                    <button
-                      type="button"
-                      class="btn btn-primary"
-                      data-test="replay-game"
-                      @click="onReplay"
-                    >
-                      Rejouer
-                    </button>
-                  </template>
-                  <p v-else class="waiting-host" data-test="waiting-host">
-                    En attente de l'hôte...
-                  </p>
-                </div>
-              </div>
-
-              <!-- Classement — sidebar on desktop, stacked on mobile -->
-              <div class="final-scoreboard">
-                <h3 class="final-scoreboard-heading text-display">Classement</h3>
-                <ScoreBoard
-                  :scores="finalDisplayScores"
-                  :players="playerMap"
-                  class="scoreboard-final"
+                <!-- Mobile: actions close the ceremony, after the setlist -->
+                <FinishedActions
+                  v-if="isMobile"
+                  :is-host="isHost"
+                  @back="onBackToLobby"
+                  @replay="onReplay"
                 />
               </div>
             </div>
@@ -378,6 +371,7 @@ import { computed, onMounted, onBeforeUnmount, ref, watch, watchEffect } from 'v
 import AnswerInput from './AnswerInput.vue'
 import CircularCountdown from './CircularCountdown.vue'
 import Countdown from './Countdown.vue'
+import FinishedActions from './FinishedActions.vue'
 import RoundPodium from './RoundPodium.vue'
 import ScoreBoard from './ScoreBoard.vue'
 import TrackWaveform from './TrackWaveform.vue'
@@ -512,11 +506,27 @@ const isAnswerPhase = computed(() => phase.value === 'playing' || phase.value ==
 
 const audioActive = computed(() => !!trackUrl.value && isAnswerPhase.value)
 
+// Names are memoised across roster updates: a player who quits mid-game
+// keeps their score rows, and those must still read "Bob", not a user id.
+const knownNames = ref<Record<string, string>>({})
+watch(
+  () => roomStore.room?.players,
+  (players) => {
+    if (!players) return
+    const next = { ...knownNames.value }
+    for (const p of players) {
+      next[p.id] = p.name
+    }
+    knownNames.value = next
+  },
+  { immediate: true, deep: true },
+)
+
 const playerMap = computed<Record<string, { name: string }>>(() => {
-  const players = roomStore.room?.players ?? []
   const map: Record<string, { name: string }> = {}
-  for (const p of players) {
-    map[p.id] = { name: p.name }
+  for (const [id, name] of Object.entries(knownNames.value)) {
+    // eslint-disable-next-line security/detect-object-injection
+    map[id] = { name }
   }
   return map
 })
@@ -1252,8 +1262,34 @@ onBeforeUnmount(() => {
 .finished-body--desktop {
   display: grid;
   grid-template-columns: minmax(0, 1fr) clamp(320px, 22vw, 420px);
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas:
+    'podium side'
+    'main side';
   align-items: flex-start;
   gap: clamp(var(--space-lg), 2.5vw, 3rem);
+}
+
+.finished-body--desktop .game-podium {
+  grid-area: podium;
+  justify-self: center;
+}
+
+.finished-body--desktop .finished-side {
+  grid-area: side;
+  align-self: start;
+}
+
+.finished-body--desktop .finished-main {
+  grid-area: main;
+}
+
+.finished-side {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
 }
 
 .finished-body--desktop .finished-main {
@@ -1264,7 +1300,7 @@ onBeforeUnmount(() => {
   align-items: center;
 }
 
-.finished-body--desktop .final-scoreboard {
+.finished-body--desktop .finished-side {
   width: 100%;
   position: sticky;
   top: var(--space-lg);
@@ -1286,13 +1322,13 @@ onBeforeUnmount(() => {
     inset 0 1px 0 rgba(var(--color-white-rgb), 0.05);
 }
 
-.finished-body--desktop .final-scoreboard::-webkit-scrollbar {
+.finished-body--desktop .finished-side::-webkit-scrollbar {
   width: 6px;
 }
-.finished-body--desktop .final-scoreboard::-webkit-scrollbar-track {
+.finished-body--desktop .finished-side::-webkit-scrollbar-track {
   background: transparent;
 }
-.finished-body--desktop .final-scoreboard::-webkit-scrollbar-thumb {
+.finished-body--desktop .finished-side::-webkit-scrollbar-thumb {
   background: rgba(var(--color-accent-rgb), 0.25);
   border-radius: 3px;
 }
@@ -1303,32 +1339,6 @@ onBeforeUnmount(() => {
   gap: var(--space-xl);
   align-items: center;
   width: 100%;
-}
-
-.finished-actions {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: var(--space-sm);
-  width: 100%;
-  max-width: 400px;
-  padding: var(--space-sm) 0;
-  margin-top: auto;
-}
-
-.finished-actions .btn {
-  min-height: 48px;
-}
-
-@media (min-width: 768px) {
-  .finished-actions {
-    flex-direction: row;
-    justify-content: center;
-    align-items: center;
-  }
-  .finished-actions .btn {
-    min-width: 180px;
-  }
 }
 
 .finished-title {
@@ -1628,14 +1638,6 @@ onBeforeUnmount(() => {
   font-size: var(--text-sm);
 }
 
-.waiting-host {
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
-  text-transform: uppercase;
-  letter-spacing: 2px;
-  text-align: center;
-}
-
 /* === Zone actions === */
 .zone-actions {
   position: sticky;
@@ -1864,6 +1866,7 @@ onBeforeUnmount(() => {
 /* === Desktop layout — fluid immersive stage === */
 .layout-desktop {
   width: 100%;
+  height: 100%;
   max-width: none;
   margin: 0;
   padding-inline: clamp(var(--space-md), 3vw, 3rem);
@@ -1872,6 +1875,9 @@ onBeforeUnmount(() => {
 .layout-desktop .game-body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) clamp(260px, 20vw, 320px);
+  /* minmax(0, 1fr): the row must not grow past the locked viewport — the
+     stage scrolls internally instead of pushing the page. */
+  grid-template-rows: minmax(0, 1fr);
   gap: clamp(var(--space-lg), 2.4vw, var(--space-xl));
   align-items: stretch;
   min-height: 0;
@@ -1880,13 +1886,19 @@ onBeforeUnmount(() => {
 .layout-desktop .zone-content {
   min-height: 0;
   justify-content: center;
-  padding: var(--space-lg) clamp(var(--space-md), 2vw, var(--space-xl));
+  padding: clamp(var(--space-sm), 2vh, var(--space-lg)) clamp(var(--space-md), 2vw, var(--space-xl));
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(var(--color-white-rgb), 0.15) transparent;
 }
 
-/* The answer stage centers within the main column, widened generously */
+/* The answer stage centers within the main column, widened generously.
+   Its vertical rhythm scales with the viewport height so a full reveal
+   (cover, title, waveform, input, podium) fits a 900px-tall screen. */
 .layout-desktop .answer-stage {
   max-width: min(860px, 100%);
   margin-inline: auto;
+  gap: clamp(var(--space-sm), 2.2vh, var(--space-lg));
 }
 
 .layout-desktop .countdown-stage,
@@ -1927,16 +1939,16 @@ onBeforeUnmount(() => {
 
 .layout-desktop .reveal {
   max-width: min(720px, 100%);
-  padding: var(--space-xl) var(--space-lg);
+  padding: clamp(var(--space-md), 2.4vh, var(--space-xl)) var(--space-lg);
 }
 
 .layout-desktop .reveal-cover {
-  width: 180px;
-  height: 180px;
+  width: clamp(110px, 17vh, 180px);
+  height: clamp(110px, 17vh, 180px);
 }
 
 .layout-desktop .reveal-title {
-  font-size: var(--text-hero);
+  font-size: clamp(var(--text-2xl), 4vh, var(--text-hero));
 }
 
 .layout-desktop .scoreboard-compact {
@@ -2085,6 +2097,17 @@ onBeforeUnmount(() => {
 
 .layout-finished .awards-grid {
   grid-template-columns: repeat(2, 1fr);
+}
+
+/* Phones: one award per row (two columns squeeze the titles into three
+   lines) and a title that fits on two lines instead of three. */
+@media (max-width: 560px) {
+  .layout-finished .finished-title {
+    font-size: clamp(var(--text-2xl), 9vw, var(--text-hero));
+  }
+  .layout-finished .awards-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .layout-finished .zone-actions {

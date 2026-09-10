@@ -157,6 +157,46 @@ describe('GameView', () => {
     expect(wrapper.text()).toContain('Prêt ?')
   })
 
+  it.each([
+    ['playing_reveal', 'Révélation'],
+    ['round_pause', 'Manche suivante'],
+  ])('translates the blindtest %s phase instead of showing the raw id', async (phase, label) => {
+    const { pinia } = await mountGame({ authenticated: true })
+    setActivePinia(pinia)
+    const gameStore = useGameStore()
+    gameStore.setState({ phase, current_round: 0, total_rounds: 5, total_scores: {} })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/:code/play', component: GameView, props: true }],
+    })
+    await router.push('/FUNK4242/play')
+    await router.isReady()
+    const wrapper = mount(GameView, {
+      props: { code: 'FUNK4242' },
+      global: { plugins: [router, pinia] },
+    })
+    expect(wrapper.find('.zone-info-main').text()).toContain(label)
+    expect(wrapper.find('.zone-info-main').text()).not.toContain(phase)
+  })
+
+  it('room_updated socket event refreshes the roster (host handover mid-game)', async () => {
+    const { pinia } = await mountGame({ authenticated: true, withRoom: true })
+    setActivePinia(pinia)
+    const roomStore = useRoomStore()
+    expect(roomStore.isHost).toBe(true)
+    const handler = socketMock.on.mock.calls.find((c) => c[0] === 'room_updated')?.[1]
+    expect(handler).toBeDefined()
+    handler!({
+      code: 'FUNK4242',
+      players: [{ id: 'u2', name: 'Bob', is_host: true }],
+      settings: roomStore.room!.settings,
+      status: 'playing',
+    })
+    expect(roomStore.isHost).toBe(false)
+    expect(roomStore.room!.players.map((p) => p.name)).toEqual(['Bob'])
+  })
+
   it('game_state socket event updates the game store', async () => {
     const { pinia } = await mountGame({ authenticated: true })
     setActivePinia(pinia)

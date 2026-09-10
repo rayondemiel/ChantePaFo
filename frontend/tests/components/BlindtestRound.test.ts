@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { setActivePinia, createPinia } from 'pinia'
+import { nextTick } from 'vue'
 import BlindtestRound from '../../src/components/BlindtestRound.vue'
 import { useAuthStore } from '../../src/stores/auth'
 import { useRoomStore } from '../../src/stores/room'
@@ -464,6 +465,16 @@ describe('BlindtestRound', () => {
     } finally {
       pauseSpy.mockRestore()
     }
+  })
+
+  it('keeps showing the name of a player who left mid-game', async () => {
+    const { wrapper } = await setup({ phase: 'finished', total_scores: { u1: 100, u2: 50 } })
+    expect(wrapper.text()).toContain('Bob')
+    const room = useRoomStore()
+    room.setRoom({ ...room.room!, players: [{ id: 'u1', name: 'Alice', is_host: true }] })
+    await nextTick()
+    expect(wrapper.text()).toContain('Bob')
+    expect(wrapper.text()).not.toContain('u2')
   })
 
   it('host sees back-to-lobby and replay buttons in finished phase', async () => {
