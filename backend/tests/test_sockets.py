@@ -351,6 +351,30 @@ async def test_disconnect_grace_expires_into_a_real_leave(sio_env, monkeypatch):
     assert len(room_events) == 1
 
 
+async def test_pending_leave_task_ends_cancelled_on_reconnect(sio_env, monkeypatch):
+    """Cancelling the grace task must actually cancel it: swallowing the
+    CancelledError would leave the task reported as completed and break
+    cooperative cancellation (loop shutdown, task groups)."""
+    monkeypatch.setattr(app.sockets.handlers, "_DISCONNECT_GRACE_SECONDS", 5)
+    await _connect(sio_env, "sid-1")
+    code = await _create_and_join(sio_env, "sid-1")
+    svc = RoomService(sio_env["redis"])
+    await svc.join_room(code, player_id="other-player", player_name="Bob")
+
+    await sio_env["handlers"]["disconnect"]("sid-1")
+    task = app.sockets.handlers._pending_leaves[(code, "test-user-1")]
+    await asyncio.sleep(0)  # let the task reach its sleep
+
+    app.sockets.handlers._cancel_pending_leave(code, "test-user-1")
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert task.cancelled()
+
+    # And the player is still in the room: no leave was finalized.
+    room = await svc.get_room(code)
+    assert [p["id"] for p in room["players"]] == ["test-user-1", "other-player"]
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # join_room
 # ═══════════════════════════════════════════════════════════════════════════════

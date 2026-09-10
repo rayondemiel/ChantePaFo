@@ -266,10 +266,10 @@ async def _finalize_leave(room_code: str, user_id: str) -> None:
 
 
 async def _leave_after_grace(room_code: str, user_id: str) -> None:
-    try:
-        await asyncio.sleep(_DISCONNECT_GRACE_SECONDS)
-    except asyncio.CancelledError:
-        return
+    # A reconnect cancels this task during the sleep: let the CancelledError
+    # propagate so the task really ends cancelled (swallowing it would report
+    # the task as completed and break cooperative cancellation on shutdown).
+    await asyncio.sleep(_DISCONNECT_GRACE_SECONDS)
     await _finalize_leave(room_code, user_id)
 
 
