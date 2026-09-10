@@ -175,7 +175,7 @@ describe('useAudio', () => {
     a.connectAnalyser(el)
     a.connectAnalyser(el)
     // createMediaElementSource may legally only be called once per element.
-    expect(ctxHandle.createSourceCalls.length).toBe(1)
+    expect(ctxHandle.createSourceCalls).toHaveLength(1)
     // The analyser is also a singleton — never recreated.
     expect(ctxHandle.ctx?.createAnalyser).toHaveBeenCalledOnce()
   })
@@ -184,7 +184,7 @@ describe('useAudio', () => {
     const a = await freshUseAudio()
     a.connectAnalyser(fakeAudioEl())
     a.connectAnalyser(fakeAudioEl())
-    expect(ctxHandle.createSourceCalls.length).toBe(2)
+    expect(ctxHandle.createSourceCalls).toHaveLength(2)
     expect(ctxHandle.ctx?.createAnalyser).toHaveBeenCalledOnce()
   })
 

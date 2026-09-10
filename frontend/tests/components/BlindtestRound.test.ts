@@ -171,7 +171,7 @@ describe('BlindtestRound', () => {
     const scoreboard = wrapper.findComponent({ name: 'ScoreBoard' })
     expect(scoreboard.exists()).toBe(true)
     const rows = wrapper.findAll('.score-row')
-    expect(rows.length).toBe(2)
+    expect(rows).toHaveLength(2)
   })
 
   it('emits game_event with answer payload when AnswerInput submits', async () => {
