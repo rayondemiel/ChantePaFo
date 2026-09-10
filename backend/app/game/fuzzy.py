@@ -126,6 +126,18 @@ def _match_artist_components(
     return matched, len(components), best_dist
 
 
+def _combined_matches(answer: str, clean_title: str, correct_artist: str, partial: bool) -> bool:
+    # When one half already matched, only accept the combined "title artist"
+    # form if the guess is long enough to plausibly cover both halves.
+    combined = f"{clean_title} {_strip_title_noise(correct_artist)}"
+    if partial:
+        norm_combined = normalize_text(combined)
+        if norm_combined and len(normalize_text(answer)) < len(norm_combined) * 0.7:
+            return False
+    matched, _ = _is_match(answer, combined)
+    return matched
+
+
 def fuzzy_match(answer: str, correct_title: str, correct_artist: str) -> dict[str, Any]:
     start = time.perf_counter()
 
@@ -140,19 +152,10 @@ def fuzzy_match(answer: str, correct_title: str, correct_artist: str) -> dict[st
 
     # Fallback: full "title artist" combined string for one-shot guesses
     if not (title_match and artist_match):
-        combined = f"{clean_title} {_strip_title_noise(correct_artist)}"
-        norm_answer = normalize_text(answer)
-        norm_combined = normalize_text(combined)
-        use_combined = True
-        if title_match or artist_match:
-            if norm_combined and len(norm_answer) < len(norm_combined) * 0.7:
-                use_combined = False
-        if use_combined:
-            combined_match, _ = _is_match(answer, combined)
-            if combined_match:
-                title_match = True
-                artist_match = True
-                matched_indices = list(range(total_components))
+        if _combined_matches(answer, clean_title, correct_artist, title_match or artist_match):
+            title_match = True
+            artist_match = True
+            matched_indices = list(range(total_components))
 
     bonus = title_match and artist_match
     distance = min(title_dist, artist_dist)
