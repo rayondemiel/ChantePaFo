@@ -21,8 +21,11 @@ _NOISE_PATTERNS = re.compile(
 # ---------------------------------------------------------------------------
 # Artist separators for composite artist names
 # ---------------------------------------------------------------------------
+# No leading \s*: re.split retries the pattern at every offset, and a greedy
+# leading \s* re-consumes the whole whitespace run each time (quadratic —
+# 16k spaces took 4s). The caller strips each part anyway.
 _ARTIST_SEPARATORS = re.compile(
-    r"\s*(?:\bfeat\.?|\bft\.?|[&+,]|\bx\b|\band\b|\bavec\b)\s*",
+    r"(?:\bfeat\.?|\bft\.?|[&+,]|\bx\b|\band\b|\bavec\b)\s*",
     re.IGNORECASE,
 )
 

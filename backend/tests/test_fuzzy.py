@@ -1,3 +1,5 @@
+import time
+
 from app.game.fuzzy import (
     _split_artist,
     _strip_title_noise,
@@ -303,3 +305,19 @@ def test_short_word_does_not_match_artist():
     # "the" is stripped by normalize_text, leaving "" which should not match
     result = fuzzy_match("the", "Boys Don't Cry", "The Cure")
     assert result["artist_match"] is False
+
+
+def test_split_artist_handles_separators_and_spacing():
+    assert _split_artist("David Guetta feat. Flo Rida") == ["David Guetta", "Flo Rida"]
+    assert _split_artist("Earth, Wind & Fire") == ["Earth", "Wind", "Fire"]
+    assert _split_artist("Jay-Z x Linkin Park") == ["Jay-Z", "Linkin Park"]
+    assert _split_artist("Bob Marley and The Wailers") == ["Bob Marley", "The Wailers"]
+    assert _split_artist("  spaced   feat   name  ") == ["spaced", "name"]
+
+
+def test_split_artist_stays_linear_on_whitespace_flood():
+    # A leading \s* in the separator pattern made this quadratic: 16k spaces
+    # took ~4s. Generous bound — the point is the shape, not the exact timing.
+    start = time.perf_counter()
+    assert _split_artist(" " * 16000) == []
+    assert time.perf_counter() - start < 2.0
