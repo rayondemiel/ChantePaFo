@@ -506,6 +506,35 @@ def _apply_rank_window(
     return tracks[start:end]
 
 
+def _tag_sort_and_window(
+    tracks: list[dict[str, Any]], genre: str, window: tuple[float, float]
+) -> list[dict[str, Any]]:
+    """Tag tracks with the genre key they were fetched under, then slice them.
+
+    Deezer's own genre_id field is unreliable / often missing, so the game
+    engine and the ambiance rely on this tag to pick the right palette.
+    """
+    for t in tracks:
+        t["genre"] = genre
+    tracks.sort(key=lambda t: t.get("rank", 0), reverse=True)
+    return _apply_rank_window(tracks, window)
+
+
+def _dedupe_playable(tracks: list[dict[str, Any]], excluded: set[int]) -> list[dict[str, Any]]:
+    """Drop duplicates, excluded ids and tracks below the popularity floor."""
+    seen_ids: set[int] = set()
+    unique: list[dict[str, Any]] = []
+    for t in tracks:
+        track_id = int(t["id"])
+        if track_id in seen_ids or track_id in excluded:
+            continue
+        if int(t.get("rank", 0)) < MIN_RANK_THRESHOLD:
+            continue
+        seen_ids.add(track_id)
+        unique.append(t)
+    return unique
+
+
 class DeezerClient:
     def __init__(self) -> None:
         self.base_url = settings.deezer_api_base
@@ -686,40 +715,20 @@ class DeezerClient:
                 playlists_per_query=playlists_per_query,
             )
 
-            # Tag each track with the genre key it was fetched under so the
-            # game engine / ambiance can pick the right palette per round
-            # (Deezer's own genre_id field is unreliable / often missing).
-            for t in tracks:
-                t["genre"] = genre
-
-            # Sort by rank desc → most popular first, then take the configured
-            # popularity window for this difficulty.
-            tracks.sort(key=lambda t: t.get("rank", 0), reverse=True)
-            filtered = _apply_rank_window(tracks, rank_window)
-            all_tracks.extend(filtered)
+            # Most popular first, then keep the popularity window configured
+            # for this difficulty.
+            all_tracks.extend(_tag_sort_and_window(tracks, genre, rank_window))
 
         # Charts only make sense as a popularity booster on the global "all"
         # mode — and only when the difficulty actually wants top hits.
         if chart_diff is not None:
             chart_tracks = await self.get_chart_tracks(limit=100)
-            for t in chart_tracks:
-                t["genre"] = "all"
-            chart_tracks.sort(key=lambda t: t.get("rank", 0), reverse=True)
-            all_tracks.extend(_apply_rank_window(chart_tracks, chart_diff["rank_window"]))
+            all_tracks.extend(_tag_sort_and_window(chart_tracks, "all", chart_diff["rank_window"]))
 
         # Deduplicate, drop excluded ids, and apply the absolute popularity
         # floor (kills off truly obscure outliers that slipped through the
         # genre playlists).
-        seen_ids: set[int] = set()
-        unique: list[dict[str, Any]] = []
-        for t in all_tracks:
-            track_id = int(t["id"])
-            if track_id in seen_ids or track_id in excluded:
-                continue
-            if int(t.get("rank", 0)) < MIN_RANK_THRESHOLD:
-                continue
-            seen_ids.add(track_id)
-            unique.append(t)
+        unique = _dedupe_playable(all_tracks, excluded)
 
         # If exclusion left us short, we still ship what we have (caller
         # handles short rounds). The shuffle ensures variety across games.
