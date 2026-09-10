@@ -168,6 +168,18 @@ describe('TrackWaveform', () => {
     expect(markerEls[2].classes()).toContain('marker-artist')
   })
 
+  it('names each marker through its tooltip rather than an img role', () => {
+    const markers: MatchInfo[] = [
+      { player_id: 'p1', name: 'Alice', time_ms: 5000, match_type: 'bonus' },
+    ]
+    const wrapper = mountWaveform({ markers, totalDurationMs: 25000 })
+    const marker = wrapper.get('.marker')
+    expect(marker.attributes('role')).toBeUndefined()
+    expect(marker.attributes('title')).toBe('Alice')
+    expect(marker.get('.marker-tooltip').text()).toContain('Alice')
+    expect(marker.get('.marker-tooltip').text()).toContain('bonus')
+  })
+
   it('does not render markers layer when markers array is empty', () => {
     const wrapper = mountWaveform({ markers: [] })
     expect(wrapper.find('.markers-layer').exists()).toBe(false)

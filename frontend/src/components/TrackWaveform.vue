@@ -55,8 +55,6 @@
         :class="`marker-${marker.match_type}`"
         :style="{ left: `${marker.left}%` }"
         :title="marker.name"
-        role="img"
-        :aria-label="`${marker.name} - ${marker.match_type}`"
       >
         <span class="marker-line" :class="`marker-line-${marker.match_type}`"></span>
         <span class="marker-tooltip">

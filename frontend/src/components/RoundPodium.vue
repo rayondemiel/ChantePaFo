@@ -1,8 +1,8 @@
 <template>
-  <p v-if="winners.length === 0" class="podium-empty" role="status">
+  <output v-if="winners.length === 0" class="podium-empty">
     <span class="podium-empty-glyph" aria-hidden="true">🦗</span>
     Personne n'a trouvé titre + artiste
-  </p>
+  </output>
   <ol v-else class="podium" aria-label="Top 3 du round">
     <li
       v-for="slot in slots"
