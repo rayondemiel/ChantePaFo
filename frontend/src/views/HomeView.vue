@@ -107,7 +107,8 @@ async function ensureAuth(name: string): Promise<boolean> {
       .replace(/[\u0300-\u036f]/g, '')
       .replace(/[^a-z0-9_.-]/g, '_')
       .replace(/_+/g, '_')
-      .slice(0, 20) + `_${Date.now()}`
+      // 18 + 1 + 8 + 4 chars stays under the backend's 32-char username cap.
+      .slice(0, 18) + `_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
   const email = `${safeUsername}@chantepafo.app`
   const password = crypto.randomUUID()
   const resp = await fetch('/api/auth/register', {

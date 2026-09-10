@@ -254,6 +254,13 @@ function onToggleMute() {
   outline-offset: 2px;
 }
 
+@media (max-width: 899px) {
+  .volume-slider {
+    /* Taller hit area for thumbs; the 6px track stays centred in it. */
+    height: 44px;
+  }
+}
+
 @media (max-width: 560px) {
   .volume-slider {
     width: clamp(96px, 30vw, 140px);

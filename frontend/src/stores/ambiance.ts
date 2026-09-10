@@ -3,11 +3,14 @@ import { ref, watch } from 'vue'
 import type { AmbianceConfig } from '../types'
 
 export const useAmbianceStore = defineStore('ambiance', () => {
+  // Same values as the backend's "lobby" moment (app/ambiance/engine.py) so a
+  // client that loads without receiving ambiance_update (reload, deep link)
+  // glows like everyone else in the room.
   const config = ref<AmbianceConfig>({
-    palette: ['#3A3A5C', '#5C5C8A'],
+    palette: ['#334466', '#223355', '#445577'],
     behavior: 'breathe_slow',
-    intensity: 0.2,
-    vibe: 'lobby',
+    intensity: 0.3,
+    vibe: 'waiting',
   })
 
   // Sync ambiance to CSS variables whenever config changes

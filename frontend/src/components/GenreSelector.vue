@@ -31,12 +31,32 @@
 </template>
 
 <script setup lang="ts">
-import { reactive } from 'vue'
+import { reactive, watch } from 'vue'
 import { GENRES, DIFFICULTY_LABELS } from '../lib/genres'
+
+const props = defineProps<{
+  /** Server-synced selection. Re-syncs the local state on every change
+   *  (host reload, return from a game) without emitting an update. */
+  modelValue?: Record<string, number>
+}>()
 
 const emit = defineEmits<{ update: [genres: Record<string, number>] }>()
 
 const selected = reactive<Record<string, number>>({ all: 2 })
+
+function syncFrom(value: Record<string, number> | undefined) {
+  if (!value || Object.keys(value).length === 0) return
+  Object.keys(selected).forEach((k) => {
+    // eslint-disable-next-line security/detect-object-injection
+    delete selected[k]
+  })
+  for (const [key, level] of Object.entries(value)) {
+    // eslint-disable-next-line security/detect-object-injection
+    selected[key] = Number(level) || 2
+  }
+}
+
+watch(() => props.modelValue, syncFrom, { immediate: true, deep: true })
 
 function isSelected(key: string): boolean {
   return key in selected
@@ -137,5 +157,42 @@ function setDifficulty(key: string, level: number) {
 .diff-dot-filled {
   background: var(--tone);
   box-shadow: 0 0 8px var(--tone);
+}
+
+/* Phones: chips and difficulty dots must be tappable with a thumb. The dot
+   stays a 10px glyph (drawn by ::before) inside a 26×44px hit area. */
+@media (max-width: 899px) {
+  .genre-selector .chip {
+    min-height: 44px;
+    padding: 0.5rem 0.95rem;
+    font-size: var(--text-sm);
+  }
+  .difficulty-dots {
+    gap: 0;
+    padding: 0 0.2rem;
+  }
+  .diff-dot {
+    position: relative;
+    width: 26px;
+    height: 44px;
+    border: none;
+    background: transparent;
+    box-shadow: none;
+  }
+  .diff-dot::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 10px;
+    height: 10px;
+    margin: -5px 0 0 -5px;
+    border-radius: 50%;
+    border: 1.5px solid var(--tone);
+  }
+  .diff-dot-filled::before {
+    background: var(--tone);
+    box-shadow: 0 0 8px var(--tone);
+  }
 }
 </style>

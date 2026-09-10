@@ -22,6 +22,22 @@ describe('GenreSelector', () => {
     expect(emitted![emitted!.length - 1][0]).toHaveProperty('rock')
   })
 
+  it('initialises the selection from the modelValue prop', () => {
+    const wrapper = mount(GenreSelector, { props: { modelValue: { rock: 3 } } })
+    const active = wrapper.findAll('.chip.active').map((c) => c.text())
+    expect(active).toEqual(['Rock'])
+    // Difficulty 3 → three filled dots under the Rock chip
+    expect(wrapper.findAll('.diff-dot-filled')).toHaveLength(3)
+  })
+
+  it('follows later modelValue changes without emitting', async () => {
+    const wrapper = mount(GenreSelector, { props: { modelValue: { rock: 3 } } })
+    await wrapper.setProps({ modelValue: { pop: 1, jazz: 4 } })
+    const active = wrapper.findAll('.chip.active').map((c) => c.text())
+    expect(active).toEqual(['Pop', 'Jazz'])
+    expect(wrapper.emitted('update')).toBeUndefined()
+  })
+
   it('deselecting all defaults back to all', async () => {
     const wrapper = mount(GenreSelector)
     // Click "Tout" to deselect it (only selected item)

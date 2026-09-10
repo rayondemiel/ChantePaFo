@@ -155,7 +155,7 @@
 
         <div class="field">
           <span class="field-label">Genres</span>
-          <GenreSelector @update="onGenresUpdate" />
+          <GenreSelector :model-value="roomStore.room.settings?.genres" @update="onGenresUpdate" />
         </div>
       </section>
 
@@ -270,7 +270,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useRoomStore } from '../stores/room'
@@ -341,6 +341,22 @@ const displayGenres = computed(() => {
 })
 const hostName = computed(() => roomStore.room?.players.find((p) => p.is_host)?.name ?? 'Host')
 
+// The host's console edits local refs (instant feedback) but the server is
+// the source of truth: re-sync whenever the room state arrives so a reload or
+// a return from a game shows the real settings instead of the defaults.
+watch(
+  () => roomStore.room?.settings,
+  (settings) => {
+    if (!settings) return
+    if (settings.game_mode) gameMode.value = settings.game_mode
+    if (settings.num_rounds) numRounds.value = settings.num_rounds
+    if (settings.karaoke_variant === 'classic' || settings.karaoke_variant === 'progressive') {
+      karaokeVariant.value = settings.karaoke_variant
+    }
+  },
+  { immediate: true, deep: true },
+)
+
 const confirmLeaveOpen = ref(false)
 const confirmKickOpen = ref(false)
 const kickTarget = ref<Player | null>(null)
@@ -385,8 +401,10 @@ function leaveRoom() {
 
 function onConfirmLeave() {
   confirmLeaveOpen.value = false
-  // Disconnecting triggers the server-side _handle_disconnect which
-  // calls svc.leave_room and broadcasts room_updated to the other players.
+  // Leave explicitly so the server drops us right away and broadcasts
+  // room_updated (a bare disconnect is treated as a possible page reload and
+  // only takes effect after a short grace period).
+  socketEmit('leave_game', { code: props.code })
   socketDisconnect()
   roomStore.clearRoom()
   router.push('/')
@@ -1754,6 +1772,19 @@ onUnmounted(() => {
   .lobby {
     /* Leave room for the fixed launch bar so the last content isn't hidden */
     padding-bottom: 6.5rem;
+    /* The decorative orbs bleed past the right edge; without clipping the
+       document grows wider than the phone and mobile browsers zoom the whole
+       lobby out to fit it (and let it pan sideways). */
+    overflow-x: clip;
+  }
+  /* Actions wrap onto a second row instead of overflowing the header: the
+     nav is a grid item, so min-width: 0 keeps it from stretching the column. */
+  .header-chips {
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+  .header-volume {
+    order: 1;
   }
   .lobby-footer {
     position: fixed;
@@ -1804,25 +1835,27 @@ onUnmounted(() => {
   .mode-emoji {
     font-size: 1.7rem;
   }
-  /* Chips: horizontal scroll instead of wrap so they don't eat vertical space */
-  .header-chips {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    margin: 0 calc(-1 * var(--space-md));
-    padding: 0 var(--space-md);
-    scrollbar-width: none;
-  }
-  .header-chips::-webkit-scrollbar {
-    display: none;
-  }
   .chip {
     flex-shrink: 0;
-    min-height: 40px;
+    min-height: 48px;
     padding: 0.6rem 1rem;
   }
   .seg {
-    min-height: 40px;
+    min-height: 48px;
     padding: 0.5rem 1rem;
+  }
+  /* Launch CTA: label on the first row, settings recap on its own row so the
+     button never overflows the phone width. */
+  .btn-launch {
+    flex-wrap: wrap;
+    gap: 0.4rem 0.75rem;
+    padding: 0.9rem 1.2rem;
+    letter-spacing: 2px;
+  }
+  .launch-meta {
+    flex-basis: 100%;
+    justify-content: center;
+    margin-left: 0;
   }
 }
 
