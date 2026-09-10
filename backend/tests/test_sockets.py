@@ -152,6 +152,12 @@ async def sio_env(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def no_disconnect_grace(monkeypatch):
+    """Most tests expect a disconnect to leave the room synchronously."""
+    monkeypatch.setattr(app.sockets.handlers, "_DISCONNECT_GRACE_SECONDS", 0)
+
+
+@pytest.fixture(autouse=True)
 def clear_active_sessions():
     """Ensure _active_sessions and _round_timers are empty between tests."""
     for _code in list(app.sockets.handlers._round_timers):
@@ -275,6 +281,74 @@ async def test_disconnect_emits_room_updated_when_others_remain(sio_env):
 
     room_events = [e for e in sio_env["emitted"] if e["event"] == "room_updated"]
     assert len(room_events) > 0
+
+
+async def test_rejoin_after_disconnect_keeps_the_display_name(sio_env):
+    """A page reload disconnects (leave_room) then re-emits join_room from
+    a fresh socket. The player must come back as "Bob", not as the account
+    slug "alice" carried by the JWT."""
+    await _connect(sio_env, "sid-1")
+    svc = RoomService(sio_env["redis"])
+    room = await svc.create_room(host_id="other-host", host_name="Host")
+    code = room["code"]
+    # REST join registers the friendly pseudo, then the socket join follows.
+    await svc.join_room(code, player_id="test-user-1", player_name="Bob")
+    await sio_env["handlers"]["join_room"]("sid-1", {"code": code})
+
+    await sio_env["handlers"]["disconnect"]("sid-1")
+    room_after_leave = await svc.get_room(code)
+    assert all(p["id"] != "test-user-1" for p in room_after_leave["players"])
+
+    await _connect(sio_env, "sid-2")
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["join_room"]("sid-2", {"code": code})
+
+    room_events = [e for e in sio_env["emitted"] if e["event"] == "room_updated"]
+    me = next(p for p in room_events[-1]["data"]["players"] if p["id"] == "test-user-1")
+    assert me["name"] == "Bob"
+    assert sio_env["sessions"]["sid-2"]["display_name"] == "Bob"
+
+
+async def test_disconnect_grace_keeps_a_reloading_host(sio_env, monkeypatch):
+    """A page reload is a disconnect followed by a reconnect within a second.
+    The host must not be demoted (nor anyone promoted) in that window."""
+    monkeypatch.setattr(app.sockets.handlers, "_DISCONNECT_GRACE_SECONDS", 0.2)
+    await _connect(sio_env, "sid-1")
+    code = await _create_and_join(sio_env, "sid-1")
+    svc = RoomService(sio_env["redis"])
+    await svc.join_room(code, player_id="other-player", player_name="Bob")
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["disconnect"]("sid-1")
+    # Nothing broadcast yet: the roster is untouched during the grace window.
+    assert not [e for e in sio_env["emitted"] if e["event"] == "room_updated"]
+    room = await svc.get_room(code)
+    assert room["host_id"] == "test-user-1"
+
+    await _connect(sio_env, "sid-2")
+    await sio_env["handlers"]["join_room"]("sid-2", {"code": code})
+    await asyncio.sleep(0.35)
+
+    room = await svc.get_room(code)
+    assert room["host_id"] == "test-user-1"
+    assert [p["id"] for p in room["players"]] == ["test-user-1", "other-player"]
+
+
+async def test_disconnect_grace_expires_into_a_real_leave(sio_env, monkeypatch):
+    monkeypatch.setattr(app.sockets.handlers, "_DISCONNECT_GRACE_SECONDS", 0.05)
+    await _connect(sio_env, "sid-1")
+    code = await _create_and_join(sio_env, "sid-1")
+    svc = RoomService(sio_env["redis"])
+    await svc.join_room(code, player_id="other-player", player_name="Bob")
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["disconnect"]("sid-1")
+    await asyncio.sleep(0.2)
+
+    room = await svc.get_room(code)
+    assert room["host_id"] == "other-player"
+    room_events = [e for e in sio_env["emitted"] if e["event"] == "room_updated"]
+    assert len(room_events) == 1
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -744,7 +818,7 @@ async def test_kicked_user_cannot_rejoin(sio_env):
     await sio_env["handlers"]["join_room"]("sid-victim-new", {"code": code})
 
     errors = [e for e in sio_env["emitted"] if e["event"] == "error"]
-    assert any("removed" in (e["data"] or {}).get("message", "").lower() for e in errors)
+    assert any("exclu" in (e["data"] or {}).get("message", "").lower() for e in errors)
     # Victim is not re-added to the room
     svc = RoomService(sio_env["redis"])
     room = await svc.get_room(code)
@@ -1628,6 +1702,26 @@ async def test_leave_game_removes_player_from_room(sio_env):
 
     # sid left the socketio room
     assert code not in sio_env["rooms_map"].get("sid-1", set())
+
+
+async def test_leave_game_broadcasts_room_updated_with_new_host(sio_env):
+    """When the host quits mid-game the survivors must learn who the new host
+    is, otherwise the finished screen shows "waiting for host" forever."""
+    await _connect(sio_env)
+    code = await _create_and_join(sio_env)
+    svc = RoomService(sio_env["redis"])
+    await svc.join_room(code, player_id="other-player", player_name="Bob")
+    await _start_game_mocked(sio_env, code)
+
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["leave_game"]("sid-1", {"code": code})
+
+    room_events = [e for e in sio_env["emitted"] if e["event"] == "room_updated"]
+    assert len(room_events) == 1
+    assert room_events[0]["room"] == code
+    players = room_events[0]["data"]["players"]
+    assert [p["id"] for p in players] == ["other-player"]
+    assert players[0]["is_host"] is True
 
 
 async def test_leave_game_last_player_cleans_up(sio_env):

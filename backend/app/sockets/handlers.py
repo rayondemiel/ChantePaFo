@@ -47,11 +47,11 @@ logger = get_logger(__name__)
 
 _ERR_NOT_IN_ROOM = "Not in room"
 _ERR_ROOM_NOT_FOUND = "Room not found"
-_ERR_ROOM_NOT_FOUND_OR_FULL = "Room not found or full"
+_ERR_ROOM_NOT_FOUND_OR_FULL = "Room introuvable ou pleine"
 _ERR_HOST_ONLY_SETTINGS = "Only the host can update settings"
 _ERR_HOST_ONLY_START = "Only the host can start the game"
 _ERR_NO_ACTIVE_SESSION = "No active game session for this room"
-_ERR_KICKED = "You have been removed from this room"
+_ERR_KICKED = "Tu as été exclu de cette room"
 _ERR_HOST_ONLY_LOBBY = "Only the host can return to lobby"
 _ERR_HOST_ONLY_REPLAY = "Only the host can replay"
 _ERR_REPLAY_COOLDOWN = "Please wait before replaying again"
@@ -64,13 +64,21 @@ _REPLAY_COOLDOWN_SECONDS = 5
 _MAX_FUZZY_TEXT_LEN = 200
 
 
-def _kicked_key(code: str, user_id: str) -> str:
-    return f"kicked:{code}:{user_id}"
-
-
 def _room_sids_key(code: str) -> str:
     return f"room_sids:{code}"
 
+
+def _player_name_key(code: str, user_id: str) -> str:
+    return f"player_name:{code}:{user_id}"
+
+
+# Seconds a disconnected player stays in the room before being dropped, so a
+# page reload (disconnect + reconnect) does not reshuffle the roster or the
+# host. Tests set this to 0 for a synchronous leave.
+_DISCONNECT_GRACE_SECONDS = 4.0
+
+# Delayed leave tasks keyed by (room code, user id); cancelled on rejoin.
+_pending_leaves: dict[tuple[str, str], asyncio.Task[None]] = {}
 
 # In-memory game sessions, keyed by room code.
 # Lives in the process — acceptable for single-worker MVP.
@@ -223,6 +231,51 @@ async def _handle_connect(sid: str, environ: dict[str, object], auth: object) ->
     logger.info("client connected sid=%s user=%s", sid, username)
 
 
+async def _finalize_leave(room_code: str, user_id: str) -> None:
+    """Drop a player from the room record and tell the others.
+
+    Called straight from disconnect when no grace period applies, or from the
+    delayed task once the grace window closed without a reconnect.
+    """
+    _pending_leaves.pop((room_code, user_id), None)
+    redis = get_redis()
+    svc = RoomService(redis)
+    room = await svc.leave_room(room_code, user_id)
+    if room:
+        logger.info("player left room room=%s user_id=%s", room_code, user_id)
+        await sio.emit("room_updated", public_room(room), room=room_code)
+
+    # Cleanup: if no players left in the room, end the game session
+    if room_code in _active_sessions:
+        room_after = await svc.get_room(room_code)
+        if not room_after or not room_after.get("players"):
+            del _active_sessions[room_code]
+            _cancel_round_timer(room_code)
+            logger.info("game session cleaned up (empty room) room=%s", room_code)
+
+
+async def _leave_after_grace(room_code: str, user_id: str) -> None:
+    try:
+        await asyncio.sleep(_DISCONNECT_GRACE_SECONDS)
+    except asyncio.CancelledError:
+        return
+    await _finalize_leave(room_code, user_id)
+
+
+def _schedule_leave(room_code: str, user_id: str) -> None:
+    key = (room_code, user_id)
+    previous = _pending_leaves.pop(key, None)
+    if previous is not None and not previous.done():
+        previous.cancel()
+    _pending_leaves[key] = asyncio.create_task(_leave_after_grace(room_code, user_id))
+
+
+def _cancel_pending_leave(room_code: str, user_id: str) -> None:
+    task = _pending_leaves.pop((room_code, user_id), None)
+    if task is not None and not task.done():
+        task.cancel()
+
+
 async def _handle_disconnect(sid: str) -> None:
     SOCKETIO_EVENTS_TOTAL.labels(event="disconnect").inc()
     SOCKETIO_CONNECTIONS_ACTIVE.dec()
@@ -234,27 +287,23 @@ async def _handle_disconnect(sid: str) -> None:
     # still widen the return to bytes | str.
     room_code = cast("str | None", await redis.get(f"player_room:{sid}"))
     if room_code:
-        svc = RoomService(redis)
-        if user_id:
-            room = await svc.leave_room(room_code, user_id)
-            if room:
-                logger.info(
-                    "player left room sid=%s room=%s user_id=%s",
-                    sid,
-                    room_code,
-                    user_id,
-                )
-                await sio.emit("room_updated", public_room(room), room=room_code)
         await redis.delete(f"player_room:{sid}")
         await cast("Any", redis.srem(_room_sids_key(room_code), sid))
-
-        # Cleanup: if no players left in the room, end the game session
-        if room_code in _active_sessions:
-            room_after = await svc.get_room(room_code)
-            if not room_after or not room_after.get("players"):
-                del _active_sessions[room_code]
-                _cancel_round_timer(room_code)
-                logger.info("game session cleaned up (empty room) room=%s", room_code)
+        if user_id:
+            # Remember the pseudo the player typed: a page reload disconnects
+            # and re-joins over the socket, which only knows the account slug
+            # from the JWT.
+            display_name = session.get("display_name") if session else None
+            if display_name:
+                await redis.set(_player_name_key(room_code, user_id), display_name, ex=ROOM_TTL)
+            # A reload or a flaky connection is a disconnect followed by a
+            # reconnect within a second or two. Keeping the player in the
+            # room for a short grace window avoids demoting a host who just
+            # refreshed the page (and the roster flicker for everyone else).
+            if _DISCONNECT_GRACE_SECONDS > 0:
+                _schedule_leave(room_code, user_id)
+            else:
+                await _finalize_leave(room_code, user_id)
 
 
 async def _handle_join_room(sid: str, data: object) -> None:
@@ -272,7 +321,7 @@ async def _handle_join_room(sid: str, data: object) -> None:
     redis = get_redis()
 
     # Reject rejoin attempts from kicked users until the ban key expires.
-    if await redis.exists(_kicked_key(payload.code, user_id)):
+    if await redis.exists(RoomService.kicked_key(payload.code, user_id)):
         logger.warning(
             "join_room blocked (kicked) sid=%s room=%s user_id=%s",
             sid,
@@ -282,8 +331,10 @@ async def _handle_join_room(sid: str, data: object) -> None:
         await sio.emit("error", {"message": _ERR_KICKED}, to=sid)
         return
 
+    _cancel_pending_leave(payload.code, user_id)
+    remembered = cast("str | None", await redis.get(_player_name_key(payload.code, user_id)))
     svc = RoomService(redis)
-    room = await svc.join_room(payload.code, player_id=user_id, player_name=username)
+    room = await svc.join_room(payload.code, player_id=user_id, player_name=remembered or username)
     if not room:
         logger.warning("join_room failed: unknown or full room sid=%s code=%s", sid, payload.code)
         await sio.emit("error", {"message": _ERR_ROOM_NOT_FOUND_OR_FULL}, to=sid)
@@ -639,7 +690,7 @@ async def _handle_kick_player(sid: str, data: object) -> None:
         return
 
     # Persist a ban key so the target cannot re-join via join_room.
-    await redis.set(_kicked_key(payload.code, payload.player_id), "1", ex=ROOM_TTL)
+    await redis.set(RoomService.kicked_key(payload.code, payload.player_id), "1", ex=ROOM_TTL)
 
     # Find every live socket for the target user — we need them for the
     # disconnect loop below, but only AFTER broadcasting player_kicked.
@@ -716,16 +767,20 @@ async def _handle_leave_game(sid: str, data: object) -> None:
     )
     await sio.emit("left_game", {}, to=sid)
 
+    _cancel_pending_leave(payload.code, user_id)
     svc = RoomService(redis)
-    await svc.leave_room(payload.code, user_id)
+    room_after = await svc.leave_room(payload.code, user_id)
 
     # If no players remain, clean up game session and room
-    room_after = await svc.get_room(payload.code)
     if not room_after or not room_after.get("players"):
         session = _active_sessions.pop(payload.code, None)
         if session is not None:
             _cancel_round_timer(payload.code)
             logger.info("game session cleaned up (last player left) room=%s", payload.code)
+    else:
+        # The survivors need the new roster (and possibly their new host) —
+        # the finished screen decides who gets the replay buttons from it.
+        await sio.emit("room_updated", public_room(room_after), room=payload.code)
 
     logger.info("player left game sid=%s room=%s user=%s", sid, payload.code, user_id)
 

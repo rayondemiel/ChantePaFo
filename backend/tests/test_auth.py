@@ -108,6 +108,26 @@ async def test_login_wrong_password(client):
 
 
 @pytest.mark.asyncio
+async def test_register_race_on_duplicate_returns_409(client):
+    """Two guests auto-registering the same slug in the same millisecond both
+    pass the existence check; the loser of the INSERT race must get a clean
+    409, not a 500."""
+    from unittest.mock import patch
+
+    from sqlalchemy.exc import IntegrityError
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    payload = {"username": "bob_1", "email": "bob_1@chantepafo.app", "password": "securepass123"}
+    with patch.object(
+        AsyncSession,
+        "commit",
+        side_effect=IntegrityError("INSERT", {}, Exception("duplicate key")),
+    ):
+        resp = await client.post("/auth/register", json=payload)
+    assert resp.status_code == 409
+
+
+@pytest.mark.asyncio
 async def test_register_rejects_short_password(client):
     resp = await client.post(
         "/auth/register",

@@ -2,6 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.schemas import LoginRequest, RegisterRequest, TokenResponse
@@ -33,7 +34,13 @@ async def register(
         password_hash=hash_password(req.password),
     )
     db.add(user)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Lost the race against a concurrent register of the same slug: the
+        # SELECT above passed for both, the unique index settles it.
+        await db.rollback()
+        raise HTTPException(409, "Username or email already exists") from None
     await db.refresh(user)
 
     token = create_access_token(user.id, user.username)

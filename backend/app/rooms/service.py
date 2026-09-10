@@ -168,6 +168,13 @@ class RoomService:
         data = await self.redis.get(self._key(code))
         return json.loads(data) if data else None
 
+    @staticmethod
+    def kicked_key(code: str, user_id: str) -> str:
+        return f"kicked:{code}:{user_id}"
+
+    async def is_kicked(self, code: str, user_id: str) -> bool:
+        return bool(await self.redis.exists(self.kicked_key(code, user_id)))
+
     async def _eval(self, script: str, key: str, *args: Any) -> str | None:
         """Run a Lua script atomically and return the raw string result (or None)."""
         raw = self.redis.eval(script, 1, key, *args)
