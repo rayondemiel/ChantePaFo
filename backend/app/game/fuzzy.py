@@ -126,14 +126,48 @@ def _match_artist_components(
     return matched, len(components), best_dist
 
 
-def _combined_matches(answer: str, clean_title: str, correct_artist: str, partial: bool) -> bool:
-    # When one half already matched, only accept the combined "title artist"
-    # form if the guess is long enough to plausibly cover both halves.
-    combined = f"{clean_title} {_strip_title_noise(correct_artist)}"
-    if partial:
-        norm_combined = normalize_text(combined)
-        if norm_combined and len(normalize_text(answer)) < len(norm_combined) * 0.7:
+def _tokens_alike(a: str, b: str, threshold: float = 0.3) -> bool:
+    if a == b:
+        return True
+    if min(len(a), len(b)) < 4:
+        return False
+    return _levenshtein(a, b) / max(len(a), len(b)) <= threshold
+
+
+def _strip_matched_tokens(answer: str, matched: str) -> str:
+    """Drop the words of `matched` from `answer` (one fuzzy hit per word) and
+    return the leftover words — what the player typed on top of the half
+    that already matched."""
+    remaining = normalize_text(answer).split()
+    for token in normalize_text(matched).split():
+        for i, candidate in enumerate(remaining):
+            if _tokens_alike(candidate, token):
+                del remaining[i]
+                break
+    return " ".join(remaining)
+
+
+def _combined_matches(
+    answer: str, clean_title: str, correct_artist: str, title_match: bool, artist_match: bool
+) -> bool:
+    clean_artist = _strip_title_noise(correct_artist)
+    if title_match or artist_match:
+        # One half already matched on the whole guess. The bonus needs the
+        # OTHER half to be present in what is left once the matched words are
+        # removed — a plain ratio on "title artist" handed the bonus to a
+        # title-only guess whenever the artist name was short ("GIMS").
+        if title_match:
+            remainder = _strip_matched_tokens(answer, clean_title)
+            if not remainder:
+                return False
+            indices, total, _ = _match_artist_components(remainder, correct_artist)
+            return len(indices) >= total
+        remainder = _strip_matched_tokens(answer, clean_artist)
+        if not remainder:
             return False
+        ok, _ = _is_match(remainder, clean_title)
+        return ok
+    combined = f"{clean_title} {clean_artist}"
     matched, _ = _is_match(answer, combined)
     return matched
 
@@ -156,7 +190,7 @@ def fuzzy_match(answer: str, correct_title: str, correct_artist: str) -> dict[st
 
     # Fallback: full "title artist" combined string for one-shot guesses
     if not (title_match and artist_match):
-        if _combined_matches(answer, clean_title, correct_artist, title_match or artist_match):
+        if _combined_matches(answer, clean_title, correct_artist, title_match, artist_match):
             title_match = True
             artist_match = True
             matched_indices = list(range(total_components))

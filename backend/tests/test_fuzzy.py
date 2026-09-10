@@ -190,6 +190,32 @@ def test_fuzzy_noise_in_answer_does_not_create_false_positive():
     assert result["title_match"] is False
 
 
+def test_title_only_guess_does_not_earn_the_bonus_when_the_artist_is_short():
+    # "vive la monnaie" is 15 chars, "vive la monnaie gims" 20: the loose
+    # combined-string ratio used to hand out the bonus without any artist.
+    result = fuzzy_match("VIVE LA MONNAIE", "VIVE LA MONNAIE", "GIMS")
+    assert result["title_match"] is True
+    assert result["artist_match"] is False
+    assert result["bonus"] is False
+
+
+def test_title_plus_short_artist_still_earns_the_bonus():
+    result = fuzzy_match("vive la monnaie gims", "VIVE LA MONNAIE", "GIMS")
+    assert result["bonus"] is True
+
+
+def test_title_with_typo_plus_artist_earns_the_bonus():
+    result = fuzzy_match("vive la monaie gims", "VIVE LA MONNAIE", "GIMS")
+    assert result["bonus"] is True
+
+
+def test_artist_only_guess_does_not_earn_the_bonus_when_the_title_is_short():
+    result = fuzzy_match("Temper City", "Self Aware", "Temper City")
+    assert result["artist_match"] is True
+    assert result["title_match"] is False
+    assert result["bonus"] is False
+
+
 # --- Composite artist matching ---
 
 
