@@ -15,6 +15,8 @@ _API_TIMEOUT = 10.0  # seconds
 # Each genre lists multiple playlist queries — sampled at random per game so
 # the same room never sees the same starting catalog twice in a row.
 # `search` is the keyword fallback when playlists return too few tracks.
+_RAP_FR = "rap français"
+
 GENRE_CONFIG: dict[str, dict[str, Any]] = {
     # Mainstream
     "pop": {
@@ -42,7 +44,7 @@ GENRE_CONFIG: dict[str, dict[str, Any]] = {
     },
     "rap": {
         "playlists": [
-            "rap français",
+            _RAP_FR,
             "rap us",
             "rap classics",
             "rap 2010",
@@ -274,13 +276,13 @@ GENRE_CONFIG: dict[str, dict[str, Any]] = {
     },
     "rap_fr": {
         "playlists": [
-            "rap français",
+            _RAP_FR,
             "rap fr classics",
             "rap fr 2010",
             "rap fr 2020",
             "rap fr underground",
         ],
-        "search": "rap français",
+        "search": _RAP_FR,
     },
     "pop_fr": {
         "playlists": [
