@@ -148,7 +148,7 @@ class RoomService:
                 "game_mode": "blindtest",
                 "genres": {"all": 2},
                 "num_rounds": 10,
-                "extract_duration": 20,
+                "extract_duration": 30,
                 "karaoke_variant": "classic",
             },
             "status": "lobby",
@@ -167,6 +167,13 @@ class RoomService:
     async def get_room(self, code: str) -> dict[str, Any] | None:
         data = await self.redis.get(self._key(code))
         return json.loads(data) if data else None
+
+    @staticmethod
+    def kicked_key(code: str, user_id: str) -> str:
+        return f"kicked:{code}:{user_id}"
+
+    async def is_kicked(self, code: str, user_id: str) -> bool:
+        return bool(await self.redis.exists(self.kicked_key(code, user_id)))
 
     async def _eval(self, script: str, key: str, *args: Any) -> str | None:
         """Run a Lua script atomically and return the raw string result (or None)."""

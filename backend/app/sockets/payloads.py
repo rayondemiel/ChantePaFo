@@ -2,12 +2,24 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.reactions.service import validate_reaction
+
 # Shared constraints
 CODE_PATTERN = r"^[A-Z]{4}\d{4}$"
 
-# Finite allowlist matching the sounds the frontend will eventually ship.
-# Kept in sync with `frontend/public/sounds/*.mp3` when they land (Task 27).
-AllowedSound = Literal["applause", "boo", "drumroll", "buzzer", "airhorn"]
+# Finite allowlist matching the shipped sounds — kept in sync with
+# `frontend/public/sounds/*.mp3` and `frontend/src/components/Soundboard.vue`.
+AllowedSound = Literal[
+    "applause",
+    "boo",
+    "drumroll",
+    "buzzer",
+    "airhorn",
+    "laugh",
+    "sadtrombone",
+    "crickets",
+    "tada",
+]
 
 
 class _StrictBase(BaseModel):
@@ -51,6 +63,15 @@ class ReactionPayload(_StrictBase):
     def _upper(cls, v: object) -> object:
         return v.upper() if isinstance(v, str) else v
 
+    @field_validator("emoji")
+    @classmethod
+    def _allowed(cls, v: str) -> str:
+        # Finite allowlist mirroring the frontend ReactionBar — arbitrary
+        # strings would render as floating text on every player's screen.
+        if not validate_reaction(v):
+            raise ValueError("emoji not in the reaction allowlist")
+        return v
+
 
 class SoundboardPayload(_StrictBase):
     code: str = Field(..., pattern=CODE_PATTERN)
@@ -71,6 +92,21 @@ class GameEventPayload(_StrictBase):
     @classmethod
     def _upper(cls, v: object) -> object:
         return v.upper() if isinstance(v, str) else v
+
+
+class AnswerPayload(BaseModel):
+    """Validates the inner payload of a blindtest 'answer' game event.
+
+    Bounded `text` length kills the Levenshtein-DoS vector (a 1MB string
+    against a 30-char title would block the asyncio worker for seconds).
+    Client-supplied `time_ms` is accepted but IGNORED by the server, which
+    computes timing from its own monotonic clock (otherwise a tampered
+    client could send time_ms=0 and score max points each round).
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    text: str = Field(..., max_length=200)
 
 
 class KickPlayerPayload(_StrictBase):

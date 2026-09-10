@@ -142,6 +142,65 @@ async def test_join_room_endpoint(authed_client, client, fake_redis):
     await engine2.dispose()
 
 
+async def _authed_user_id(authed_client) -> str:
+    login_resp = await authed_client.post(
+        "/auth/login", json={"username": "alice", "password": "password1"}
+    )
+    return login_resp.json()["user_id"]
+
+
+async def _room_hosted_by_someone_else(fake_redis) -> str:
+    from app.rooms.service import RoomService
+
+    room = await RoomService(fake_redis).create_room(host_id="other-host", host_name="Host")
+    return room["code"]
+
+
+@pytest.mark.asyncio
+async def test_join_room_rejects_kicked_player(authed_client, fake_redis):
+    """The kick ban must hold on the REST path too, otherwise Home lets the
+    kicked player back into the roster while the socket refuses them."""
+    code = await _room_hosted_by_someone_else(fake_redis)
+    user_id = await _authed_user_id(authed_client)
+    await fake_redis.set(f"kicked:{code}:{user_id}", "1")
+
+    resp = await authed_client.post(f"/rooms/{code}/join", json={"player_name": "Alice"})
+    assert resp.status_code == 403
+    assert "exclu" in resp.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_join_room_rejects_newcomer_while_game_is_running(authed_client, fake_redis):
+    from app.rooms.service import RoomService
+
+    code = await _room_hosted_by_someone_else(fake_redis)
+    await RoomService(fake_redis).set_status(code, "playing")
+
+    resp = await authed_client.post(f"/rooms/{code}/join", json={"player_name": "Alice"})
+    assert resp.status_code == 409
+    assert "partie en cours" in resp.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_join_room_lets_a_member_back_in_while_playing(authed_client, fake_redis):
+    from app.rooms.service import RoomService
+
+    code = await _room_hosted_by_someone_else(fake_redis)
+    first = await authed_client.post(f"/rooms/{code}/join", json={"player_name": "Alice"})
+    assert first.status_code == 200
+    await RoomService(fake_redis).set_status(code, "playing")
+
+    again = await authed_client.post(f"/rooms/{code}/join", json={"player_name": "Alice"})
+    assert again.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_join_room_not_found_message_is_french(authed_client):
+    resp = await authed_client.post("/rooms/FAKE99/join", json={"player_name": "Bob"})
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Room introuvable ou pleine"
+
+
 @pytest.mark.asyncio
 async def test_join_room_not_found(authed_client):
     resp = await authed_client.post("/rooms/FAKE99/join", json={"player_name": "Bob"})

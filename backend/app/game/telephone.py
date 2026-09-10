@@ -6,7 +6,7 @@ from app.game.fuzzy import fuzzy_match
 
 
 class TelephoneArabeMode(GameMode):
-    name = "telephone_arabe"
+    name = "telephone"
 
     def __init__(self) -> None:
         self.state: dict[str, Any] = {}

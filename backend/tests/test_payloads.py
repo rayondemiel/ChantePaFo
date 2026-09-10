@@ -25,9 +25,19 @@ def test_reaction_rejects_long_emoji():
         ReactionPayload(code="FUNK4242", emoji="x" * 9)
 
 
+def test_reaction_rejects_emoji_outside_allowlist():
+    with pytest.raises(ValidationError):
+        ReactionPayload(code="FUNK4242", emoji="🎊")
+
+
+def test_reaction_accepts_every_reaction_bar_emoji():
+    for emoji in ["😂", "👏", "💀", "🔥", "😱", "❤️"]:
+        assert ReactionPayload(code="FUNK4242", emoji=emoji).emoji == emoji
+
+
 def test_reaction_rejects_extra_fields():
     with pytest.raises(ValidationError):
-        ReactionPayload(code="FUNK4242", emoji="🎉", extra="nope")
+        ReactionPayload(code="FUNK4242", emoji="👏", extra="nope")
 
 
 def test_soundboard_rejects_unknown_sound():
@@ -38,6 +48,25 @@ def test_soundboard_rejects_unknown_sound():
 def test_soundboard_accepts_allowed_sound():
     p = SoundboardPayload(code="FUNK4242", sound="applause")
     assert p.sound == "applause"
+
+
+@pytest.mark.parametrize(
+    "sound",
+    [
+        "applause",
+        "boo",
+        "drumroll",
+        "buzzer",
+        "airhorn",
+        "laugh",
+        "sadtrombone",
+        "crickets",
+        "tada",
+    ],
+)
+def test_soundboard_accepts_every_shipped_sound(sound):
+    # Mirrors frontend/src/components/Soundboard.vue and public/sounds/*.mp3.
+    assert SoundboardPayload(code="FUNK4242", sound=sound).sound == sound
 
 
 def test_start_game_forbids_host_id_in_payload():

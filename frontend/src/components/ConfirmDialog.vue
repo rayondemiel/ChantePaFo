@@ -98,6 +98,13 @@ function cancel() {
   justify-content: flex-end;
 }
 
+@media (max-width: 899px) {
+  .modal-actions .btn {
+    min-height: 48px;
+    flex: 1 1 0;
+  }
+}
+
 @keyframes pop-in {
   from {
     opacity: 0;

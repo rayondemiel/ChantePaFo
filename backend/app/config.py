@@ -1,4 +1,7 @@
-from pydantic import Field, field_validator
+import sys
+from pathlib import Path
+
+from pydantic import Field, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _FORBIDDEN_SECRETS = {
@@ -70,4 +73,36 @@ class Settings(BaseSettings):
         return v
 
 
-settings = Settings()  # type: ignore[call-arg]
+def format_validation_errors(e: ValidationError) -> list[str]:
+    """Format pydantic errors WITHOUT echoing input_value (which may be a secret).
+
+    The default `str(ValidationError)` embeds the offending input — we strip
+    it so misconfigured secrets never reach stderr / log aggregation.
+    """
+    lines: list[str] = []
+    for err in e.errors():
+        location = ".".join(str(part) for part in err["loc"])
+        lines.append(f"  - {location}: {err['msg']}")
+    return lines
+
+
+try:
+    settings = Settings()  # type: ignore[call-arg]
+except ValidationError as e:
+    _env_file = Path(__file__).resolve().parent.parent / ".env"
+    if not _env_file.exists():
+        print(
+            f"\n\033[1;31mERROR: .env file not found at {_env_file}\033[0m\n"
+            f"Copy the example and fill in the values:\n"
+            f"  cp .env.example .env\n",
+            file=sys.stderr,
+        )
+    else:
+        print(
+            f"\n\033[1;31mERROR: Invalid configuration in {_env_file}\033[0m",
+            file=sys.stderr,
+        )
+        for line in format_validation_errors(e):
+            print(line, file=sys.stderr)
+        print("", file=sys.stderr)
+    sys.exit(1)

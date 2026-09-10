@@ -64,7 +64,7 @@ class RoomSettings(BaseModel):
     game_mode: GameModeType = "blindtest"
     genres: dict[str, int] = {"all": 2}
     num_rounds: int = 10
-    extract_duration: int = 20
+    extract_duration: int = 30
     karaoke_variant: KaraokeVariantType = "classic"
 
     @field_validator("genres")

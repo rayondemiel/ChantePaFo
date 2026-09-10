@@ -3,6 +3,7 @@ import tseslint from 'typescript-eslint'
 import pluginVue from 'eslint-plugin-vue'
 import prettier from 'eslint-config-prettier'
 import pluginSecurity from 'eslint-plugin-security'
+import globals from 'globals'
 export default [
   { ignores: ['dist/**', 'node_modules/**', '.husky/**', '**/*.cjs', 'coverage/**'] },
   js.configs.recommended,
@@ -11,23 +12,7 @@ export default [
   {
     languageOptions: {
       globals: {
-        window: 'readonly',
-        document: 'readonly',
-        localStorage: 'readonly',
-        fetch: 'readonly',
-        crypto: 'readonly',
-        Headers: 'readonly',
-        RequestInit: 'readonly',
-        Response: 'readonly',
-        HTMLSelectElement: 'readonly',
-        HTMLInputElement: 'readonly',
-        navigator: 'readonly',
-        setTimeout: 'readonly',
-        clearTimeout: 'readonly',
-        MediaQueryList: 'readonly',
-        MediaQueryListEvent: 'readonly',
-        HTMLDialogElement: 'readonly',
-        MouseEvent: 'readonly',
+        ...globals.browser,
       },
     },
   },

@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any, cast
 
 import socketio
@@ -9,6 +10,14 @@ from app.ambiance.engine import get_ambiance_for_genre, get_ambiance_for_moment
 from app.auth.service import decode_token
 from app.database import async_session as session_factory
 from app.database import get_redis
+from app.game.blindtest import (
+    PHASE_COUNTDOWN,
+    PHASE_FINISHED,
+    PHASE_PLAYING,
+    PHASE_PLAYING_REVEAL,
+    PHASE_ROUND_PAUSE,
+    BlindtestMode,
+)
 from app.game.engine import GameSession, registry
 from app.logging_config import get_logger
 from app.main import sio
@@ -19,10 +28,12 @@ from app.metrics import (
     SOCKETIO_EVENTS_TOTAL,
 )
 from app.models import User
-from app.music.deezer import DeezerClient
+from app.music.deezer import RoomScopedDeezerClient
+from app.reactions.service import format_reaction_event, format_soundboard_event
 from app.rooms.schemas import PartialRoomSettings
 from app.rooms.service import ROOM_TTL, RoomService, public_room
 from app.sockets.payloads import (
+    AnswerPayload,
     GameEventPayload,
     JoinRoomPayload,
     KickPlayerPayload,
@@ -37,25 +48,167 @@ logger = get_logger(__name__)
 
 _ERR_NOT_IN_ROOM = "Not in room"
 _ERR_ROOM_NOT_FOUND = "Room not found"
-_ERR_ROOM_NOT_FOUND_OR_FULL = "Room not found or full"
+_ERR_ROOM_NOT_FOUND_OR_FULL = "Room introuvable ou pleine"
 _ERR_HOST_ONLY_SETTINGS = "Only the host can update settings"
 _ERR_HOST_ONLY_START = "Only the host can start the game"
 _ERR_NO_ACTIVE_SESSION = "No active game session for this room"
-_ERR_KICKED = "You have been removed from this room"
+_ERR_KICKED = "Tu as été exclu de cette room"
+_ERR_HOST_ONLY_LOBBY = "Only the host can return to lobby"
+_ERR_HOST_ONLY_REPLAY = "Only the host can replay"
+_ERR_REPLAY_COOLDOWN = "Please wait before replaying again"
 
+# Minimum delay between replay_game requests per room. Prevents a host from
+# spamming the endpoint and hammering the Deezer API repeatedly.
+_REPLAY_COOLDOWN_SECONDS = 5
 
-def _kicked_key(code: str, user_id: str) -> str:
-    return f"kicked:{code}:{user_id}"
+# Upper bound on any text fed to fuzzy_match() (Levenshtein is O(n*m)).
+_MAX_FUZZY_TEXT_LEN = 200
 
 
 def _room_sids_key(code: str) -> str:
     return f"room_sids:{code}"
 
 
+def _player_name_key(code: str, user_id: str) -> str:
+    return f"player_name:{code}:{user_id}"
+
+
+# Seconds a disconnected player stays in the room before being dropped, so a
+# page reload (disconnect + reconnect) does not reshuffle the roster or the
+# host. Tests set this to 0 for a synchronous leave.
+_DISCONNECT_GRACE_SECONDS = 4.0
+
+# Delayed leave tasks keyed by (room code, user id); cancelled on rejoin.
+_pending_leaves: dict[tuple[str, str], asyncio.Task[None]] = {}
+
 # In-memory game sessions, keyed by room code.
 # Lives in the process — acceptable for single-worker MVP.
 # Multi-worker deployments would require a shared session store (e.g. Redis).
 _active_sessions: dict[str, GameSession] = {}
+
+# Per-room asyncio tasks that drive the blindtest round timeline (playing →
+# playing_reveal → round_pause → next round). Stored so they can be cancelled
+# when the room is cleaned up or a new game starts.
+_round_timers: dict[str, asyncio.Task[None]] = {}
+
+# Reveal lasts 5s (music keeps playing), then a 2s silent pause before the
+# next round. Tweak these constants if the UX needs adjusting.
+_REVEAL_DURATION_SECONDS = 5
+_ROUND_PAUSE_DURATION_SECONDS = 2
+
+
+def _cancel_round_timer(code: str) -> None:
+    task = _round_timers.pop(code, None)
+    if task is not None and not task.done():
+        task.cancel()
+
+
+async def _finish_blindtest_game(code: str) -> None:
+    """End the blindtest game, emit game_ended, and reset room status to lobby."""
+    existing = _active_sessions.pop(code, None)
+    if existing is None:
+        return  # another coroutine already handled the finish
+    final = await existing.end()
+    await sio.emit("game_ended", final, room=code)
+    redis = get_redis()
+    svc = RoomService(redis)
+    await svc.set_status(code, "lobby")
+    await sio.emit("ambiance_update", get_ambiance_for_moment("lobby"), room=code)
+    logger.info("game finished room=%s", code)
+
+
+def _ambiance_for_current_phase(mode: BlindtestMode, state: dict[str, Any]) -> dict[str, Any]:
+    """What a client joining right now should glow like: the countdown moment
+    before the first note, the round's genre once the music plays."""
+    if state.get("phase") == PHASE_COUNTDOWN:
+        return get_ambiance_for_moment("countdown")
+    round_idx = int(state.get("current_round", 0))
+    genre = mode.tracks[round_idx].get("genre", "") if 0 <= round_idx < len(mode.tracks) else ""
+    return get_ambiance_for_genre(genre) if genre else get_ambiance_for_moment("countdown")
+
+
+async def _emit_round_ambiance(code: str, mode: BlindtestMode) -> None:
+    """Emit an ambiance_update tailored to the current round's genre.
+
+    Called whenever a new round starts so the front-end orbs/glows reflect
+    the music being played (palette + intensity per genre, see
+    app/ambiance/engine.py). Without this, the ambiance stays frozen on
+    whatever the last emit was (countdown by default).
+    """
+    round_idx = int(mode.state.get("current_round", 0))
+    if 0 <= round_idx < len(mode.tracks):
+        genre = mode.tracks[round_idx].get("genre", "")
+        if genre:
+            await sio.emit("ambiance_update", get_ambiance_for_genre(genre), room=code)
+
+
+async def _run_round_timeline(code: str, game_session: GameSession) -> None:
+    """Drive the blindtest round timeline via asyncio sleeps.
+
+    Loops through: playing → playing_reveal → round_pause → playing (next).
+    Bails out on phase mismatch (defensive), and triggers game-end cleanup on
+    transition to finished.
+    """
+    mode = game_session.mode
+    if not isinstance(mode, BlindtestMode):
+        return
+
+    try:
+        extract_duration = int(mode.state.get("extract_duration", 30))
+        playing_duration = max(extract_duration - _REVEAL_DURATION_SECONDS, 0)
+
+        # Round 1 already entered PHASE_PLAYING via countdown_done — emit its
+        # ambiance now (the countdown_done handler doesn't know the track).
+        await _emit_round_ambiance(code, mode)
+
+        while True:
+            # Phase: playing — wait for the answer window to close.
+            await asyncio.sleep(playing_duration)
+            if mode.state.get("phase") != PHASE_PLAYING:
+                return
+            mode.advance_to_reveal()
+            await sio.emit("game_state", game_session.get_state(), room=code)
+
+            # Phase: playing_reveal — music continues, answers locked.
+            await asyncio.sleep(_REVEAL_DURATION_SECONDS)
+            if mode.state.get("phase") != PHASE_PLAYING_REVEAL:
+                return
+            mode.advance_to_pause()
+            await sio.emit("game_state", game_session.get_state(), room=code)
+
+            # Phase: round_pause — frontend stops audio for a brief silence.
+            await asyncio.sleep(_ROUND_PAUSE_DURATION_SECONDS)
+            if mode.state.get("phase") != PHASE_ROUND_PAUSE:
+                return
+            mode.advance_to_next_round()
+            await sio.emit("game_state", game_session.get_state(), room=code)
+
+            if mode.state.get("phase") == PHASE_FINISHED:
+                await _finish_blindtest_game(code)
+                return
+            # New round just loaded → push its ambiance so the orbs reflect
+            # the new genre (otherwise they stay on the previous one).
+            await _emit_round_ambiance(code, mode)
+            # Otherwise we're back in PHASE_PLAYING for the next round; loop.
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("round timeline crashed for room=%s: %s", code, exc)
+
+
+def _spawn_round_timer(code: str, game_session: GameSession) -> None:
+    """Spawn (or replace) the round timeline task for a room."""
+    _cancel_round_timer(code)
+    task = asyncio.create_task(_run_round_timeline(code, game_session))
+    _round_timers[code] = task
+
+    def _cleanup(_t: asyncio.Task[None]) -> None:
+        # Only drop ourselves if we're still the registered timer (avoid
+        # racing with a newer timer that replaced us).
+        if _round_timers.get(code) is _t:
+            _round_timers.pop(code, None)
+
+    task.add_done_callback(_cleanup)
 
 
 async def _handle_connect(sid: str, environ: dict[str, object], auth: object) -> None:
@@ -89,6 +242,51 @@ async def _handle_connect(sid: str, environ: dict[str, object], auth: object) ->
     logger.info("client connected sid=%s user=%s", sid, username)
 
 
+async def _finalize_leave(room_code: str, user_id: str) -> None:
+    """Drop a player from the room record and tell the others.
+
+    Called straight from disconnect when no grace period applies, or from the
+    delayed task once the grace window closed without a reconnect.
+    """
+    _pending_leaves.pop((room_code, user_id), None)
+    redis = get_redis()
+    svc = RoomService(redis)
+    room = await svc.leave_room(room_code, user_id)
+    if room:
+        logger.info("player left room room=%s user_id=%s", room_code, user_id)
+        await sio.emit("room_updated", public_room(room), room=room_code)
+
+    # Cleanup: if no players left in the room, end the game session
+    if room_code in _active_sessions:
+        room_after = await svc.get_room(room_code)
+        if not room_after or not room_after.get("players"):
+            del _active_sessions[room_code]
+            _cancel_round_timer(room_code)
+            logger.info("game session cleaned up (empty room) room=%s", room_code)
+
+
+async def _leave_after_grace(room_code: str, user_id: str) -> None:
+    # A reconnect cancels this task during the sleep: let the CancelledError
+    # propagate so the task really ends cancelled (swallowing it would report
+    # the task as completed and break cooperative cancellation on shutdown).
+    await asyncio.sleep(_DISCONNECT_GRACE_SECONDS)
+    await _finalize_leave(room_code, user_id)
+
+
+def _schedule_leave(room_code: str, user_id: str) -> None:
+    key = (room_code, user_id)
+    previous = _pending_leaves.pop(key, None)
+    if previous is not None and not previous.done():
+        previous.cancel()
+    _pending_leaves[key] = asyncio.create_task(_leave_after_grace(room_code, user_id))
+
+
+def _cancel_pending_leave(room_code: str, user_id: str) -> None:
+    task = _pending_leaves.pop((room_code, user_id), None)
+    if task is not None and not task.done():
+        task.cancel()
+
+
 async def _handle_disconnect(sid: str) -> None:
     SOCKETIO_EVENTS_TOTAL.labels(event="disconnect").inc()
     SOCKETIO_CONNECTIONS_ACTIVE.dec()
@@ -96,28 +294,27 @@ async def _handle_disconnect(sid: str) -> None:
     user_id = session.get("user_id") if session else None
     logger.info("client disconnected sid=%s", sid)
     redis = get_redis()
-    room_code = await redis.get(f"player_room:{sid}")
+    # The pool sets decode_responses=True so get() yields str, but the stubs
+    # still widen the return to bytes | str.
+    room_code = cast("str | None", await redis.get(f"player_room:{sid}"))
     if room_code:
-        svc = RoomService(redis)
-        if user_id:
-            room = await svc.leave_room(room_code, user_id)
-            if room:
-                logger.info(
-                    "player left room sid=%s room=%s user_id=%s",
-                    sid,
-                    room_code,
-                    user_id,
-                )
-                await sio.emit("room_updated", public_room(room), room=room_code)
         await redis.delete(f"player_room:{sid}")
         await cast("Any", redis.srem(_room_sids_key(room_code), sid))
-
-        # Cleanup: if no players left in the room, end the game session
-        if room_code in _active_sessions:
-            room_after = await svc.get_room(room_code)
-            if not room_after or not room_after.get("players"):
-                del _active_sessions[room_code]
-                logger.info("game session cleaned up (empty room) room=%s", room_code)
+        if user_id:
+            # Remember the pseudo the player typed: a page reload disconnects
+            # and re-joins over the socket, which only knows the account slug
+            # from the JWT.
+            display_name = session.get("display_name") if session else None
+            if display_name:
+                await redis.set(_player_name_key(room_code, user_id), display_name, ex=ROOM_TTL)
+            # A reload or a flaky connection is a disconnect followed by a
+            # reconnect within a second or two. Keeping the player in the
+            # room for a short grace window avoids demoting a host who just
+            # refreshed the page (and the roster flicker for everyone else).
+            if _DISCONNECT_GRACE_SECONDS > 0:
+                _schedule_leave(room_code, user_id)
+            else:
+                await _finalize_leave(room_code, user_id)
 
 
 async def _handle_join_room(sid: str, data: object) -> None:
@@ -135,7 +332,7 @@ async def _handle_join_room(sid: str, data: object) -> None:
     redis = get_redis()
 
     # Reject rejoin attempts from kicked users until the ban key expires.
-    if await redis.exists(_kicked_key(payload.code, user_id)):
+    if await redis.exists(RoomService.kicked_key(payload.code, user_id)):
         logger.warning(
             "join_room blocked (kicked) sid=%s room=%s user_id=%s",
             sid,
@@ -145,14 +342,25 @@ async def _handle_join_room(sid: str, data: object) -> None:
         await sio.emit("error", {"message": _ERR_KICKED}, to=sid)
         return
 
+    _cancel_pending_leave(payload.code, user_id)
+    remembered = cast("str | None", await redis.get(_player_name_key(payload.code, user_id)))
     svc = RoomService(redis)
-    room = await svc.join_room(payload.code, player_id=user_id, player_name=username)
+    room = await svc.join_room(payload.code, player_id=user_id, player_name=remembered or username)
     if not room:
         logger.warning("join_room failed: unknown or full room sid=%s code=%s", sid, payload.code)
         await sio.emit("error", {"message": _ERR_ROOM_NOT_FOUND_OR_FULL}, to=sid)
         return
 
     await sio.enter_room(sid, payload.code)
+
+    # The session username is a uniqueness slug (e.g. 'rayon_1786278286400');
+    # the name the player actually typed lives in the room record, registered
+    # by the REST join. Capture it once so broadcasts (reactions, soundboard,
+    # player_left) show the friendly name instead of the slug.
+    player = next((p for p in room["players"] if p["id"] == user_id), None)
+    display_name = (player or {}).get("name") or username
+    await sio.save_session(sid, {**session, "display_name": display_name})
+
     # Track the sid in a reverse-lookup set so kicks can find every live
     # socket for a given user_id.
     await cast("Any", redis.sadd(_room_sids_key(payload.code), sid))
@@ -160,6 +368,17 @@ async def _handle_join_room(sid: str, data: object) -> None:
     await redis.set(f"player_room:{sid}", payload.code, ex=ROOM_TTL)
     logger.info("player joined room sid=%s room=%s user_id=%s", sid, payload.code, user_id)
     await sio.emit("room_updated", public_room(room), room=payload.code)
+
+    # Reconnecting into a running game (page reload): the client's store is
+    # empty, so replay the current state and the round's ambiance to this
+    # socket only — the room-wide broadcasts already happened.
+    game_session = _active_sessions.get(payload.code)
+    if game_session is not None:
+        state = game_session.get_state()
+        await sio.emit("game_state", state, to=sid)
+        mode = game_session.mode
+        if isinstance(mode, BlindtestMode):
+            await sio.emit("ambiance_update", _ambiance_for_current_phase(mode, state), to=sid)
 
 
 async def _handle_update_settings(sid: str, data: object) -> None:
@@ -237,14 +456,25 @@ async def _handle_start_game(sid: str, data: object) -> None:
         return
 
     player_count = len(room["players"])
+    # Defensive: cancel any leftover timer from a previous game in this room.
+    _cancel_round_timer(payload.code)
     game_session = GameSession(mode)
     _active_sessions[payload.code] = game_session
 
     await game_session.start(
         players=room["players"],
         settings=room["settings"],
-        track_provider=DeezerClient(),
+        track_provider=RoomScopedDeezerClient(redis, payload.code),
     )
+
+    # Defensive: if the mode finished immediately (e.g. blindtest with zero
+    # tracks because Deezer returned nothing), don't transition the room to
+    # "playing" — finalize and stay in lobby with a clear error.
+    if game_session.get_state().get("phase") == PHASE_FINISHED:
+        logger.warning("start_game aborted: no tracks available room=%s", payload.code)
+        _active_sessions.pop(payload.code, None)
+        await sio.emit("error", {"message": "No tracks available for these settings"}, to=sid)
+        return
 
     updated_room = await svc.set_status(payload.code, "playing")
     if updated_room:
@@ -257,6 +487,69 @@ async def _handle_start_game(sid: str, data: object) -> None:
 
     GAMES_STARTED_TOTAL.labels(mode=mode_name).inc()
     PLAYERS_PER_ROOM.observe(player_count)
+
+
+def _match_type(result: dict[str, Any]) -> str:
+    if result.get("bonus"):
+        return "bonus"
+    return "title" if result.get("title_match") else "artist"
+
+
+def _attach_track_reveal(mode: BlindtestMode, result: dict[str, Any]) -> None:
+    round_idx = int(mode.state.get("current_round", 0))
+    if not 0 <= round_idx < len(mode.tracks):
+        return
+    track = mode.tracks[round_idx]
+    result["correct_title"] = track["title"]
+    result["correct_artist"] = track["artist"]
+    result["cover_url"] = track.get("cover_url", "")
+
+
+async def _bound_fuzzy_text(
+    sid: str, event_type: str, event_payload: dict[str, Any]
+) -> dict[str, Any] | None:
+    # Cap text length on any event that ends up in fuzzy_match() to prevent
+    # Levenshtein-DoS via huge payloads (a 1MB string against a 30-char title
+    # would block the asyncio worker for seconds). Server is also authoritative
+    # for timing on blindtest answers — any client-supplied time_ms is
+    # discarded, BlindtestMode recomputes from its own monotonic clock.
+    # Returns None when the payload was rejected (error already emitted).
+    if event_type == "answer":
+        try:
+            answer = AnswerPayload.model_validate(event_payload)
+        except ValidationError:
+            await sio.emit("error", {"message": "Invalid answer payload"}, to=sid)
+            return None
+        return {"text": answer.text}
+
+    if event_type in ("guess", "submit_step"):
+        # Karaoke (guess) and telephone (submit_step write) feed text into
+        # fuzzy_match too. submit_step also carries audio_url for the singing
+        # variant — pass it through unchanged but bound the text field.
+        text = event_payload.get("text", "")
+        if isinstance(text, str) and len(text) > _MAX_FUZZY_TEXT_LEN:
+            await sio.emit("error", {"message": "Answer too long"}, to=sid)
+            return None
+
+    return event_payload
+
+
+async def _emit_answer_feedback(
+    code: str, user_id: str, mode: BlindtestMode, result: dict[str, Any]
+) -> None:
+    if result.get("title_match") or result.get("artist_match"):
+        await sio.emit(
+            "player_match",
+            {
+                "player_id": user_id,
+                "time_ms": result.get("time_ms", 0),
+                "match_type": _match_type(result),
+                "points": int(result.get("round_points", 0)),
+            },
+            room=code,
+        )
+    if result.get("bonus") is True:
+        _attach_track_reveal(mode, result)
 
 
 async def _handle_game_event(sid: str, data: object) -> None:
@@ -279,24 +572,33 @@ async def _handle_game_event(sid: str, data: object) -> None:
         await sio.emit("error", {"message": _ERR_NO_ACTIVE_SESSION}, to=sid)
         return
 
-    result = await game_session.handle_event(payload.event_type, user_id, payload.payload)
+    event_payload = await _bound_fuzzy_text(sid, payload.event_type, payload.payload)
+    if event_payload is None:
+        return
+
+    result = await game_session.handle_event(payload.event_type, user_id, event_payload)
     if result is not None:
-        await sio.emit("game_event_result", result, room=payload.code)
+        if payload.event_type == "answer" and isinstance(game_session.mode, BlindtestMode):
+            await _emit_answer_feedback(payload.code, user_id, game_session.mode, result)
+        await sio.emit("game_event_result", result, to=sid)
 
     state = game_session.get_state()
     await sio.emit("game_state", state, room=payload.code)
 
-    if state.get("phase") == "finished":
-        session = _active_sessions.pop(payload.code, None)
-        if session is None:
-            return  # another coroutine already handled the finish
-        final = await session.end()
-        await sio.emit("game_ended", final, room=payload.code)
-        redis = get_redis()
-        svc = RoomService(redis)
-        await svc.set_status(payload.code, "lobby")
-        await sio.emit("ambiance_update", get_ambiance_for_moment("lobby"), room=payload.code)
-        logger.info("game finished room=%s", payload.code)
+    # Blindtest auto-advance: as soon as we enter the "playing" phase (after
+    # countdown_done), spawn the timeline task that drives reveal/pause/next.
+    if (
+        payload.event_type == "countdown_done"
+        and state.get("phase") == PHASE_PLAYING
+        and isinstance(game_session.mode, BlindtestMode)
+    ):
+        _spawn_round_timer(payload.code, game_session)
+
+    # Defensive: legacy finish path (other game modes still drive game-end via
+    # handle_event). Blindtest finishes via the timeline coroutine instead.
+    if state.get("phase") == PHASE_FINISHED:
+        _cancel_round_timer(payload.code)
+        await _finish_blindtest_game(payload.code)
 
 
 async def _handle_request_ambiance(sid: str, data: object) -> None:
@@ -327,7 +629,7 @@ async def _handle_reaction(sid: str, data: object) -> None:
 
     session = await sio.get_session(sid)
     user_id = session["user_id"]
-    username = session["username"]
+    username = session.get("display_name") or session["username"]
 
     if payload.code not in sio.rooms(sid):
         await sio.emit("error", {"message": _ERR_NOT_IN_ROOM}, to=sid)
@@ -341,11 +643,7 @@ async def _handle_reaction(sid: str, data: object) -> None:
     )
     await sio.emit(
         "reaction_received",
-        {
-            "player_id": user_id,
-            "player_name": username,
-            "emoji": payload.emoji,
-        },
+        format_reaction_event(player_id=user_id, player_name=username, emoji=payload.emoji),
         room=payload.code,
     )
 
@@ -359,7 +657,8 @@ async def _handle_soundboard(sid: str, data: object) -> None:
         return
 
     session = await sio.get_session(sid)
-    username = session["username"]
+    user_id = session["user_id"]
+    username = session.get("display_name") or session["username"]
 
     if payload.code not in sio.rooms(sid):
         await sio.emit("error", {"message": _ERR_NOT_IN_ROOM}, to=sid)
@@ -373,10 +672,7 @@ async def _handle_soundboard(sid: str, data: object) -> None:
     )
     await sio.emit(
         "soundboard_played",
-        {
-            "player_name": username,
-            "sound": payload.sound,
-        },
+        format_soundboard_event(player_id=user_id, player_name=username, sound_id=payload.sound),
         room=payload.code,
     )
 
@@ -417,7 +713,7 @@ async def _handle_kick_player(sid: str, data: object) -> None:
         return
 
     # Persist a ban key so the target cannot re-join via join_room.
-    await redis.set(_kicked_key(payload.code, payload.player_id), "1", ex=ROOM_TTL)
+    await redis.set(RoomService.kicked_key(payload.code, payload.player_id), "1", ex=ROOM_TTL)
 
     # Find every live socket for the target user — we need them for the
     # disconnect loop below, but only AFTER broadcasting player_kicked.
@@ -465,6 +761,156 @@ async def _handle_kick_player(sid: str, data: object) -> None:
     )
 
 
+async def _handle_leave_game(sid: str, data: object) -> None:
+    SOCKETIO_EVENTS_TOTAL.labels(event="leave_game").inc()
+    try:
+        payload = JoinRoomPayload.model_validate(data)
+    except ValidationError:
+        await sio.emit("error", {"message": "Invalid leave_game payload"}, to=sid)
+        return
+
+    sio_session = await sio.get_session(sid)
+    user_id: str = sio_session["user_id"]
+    username: str = sio_session.get("display_name") or sio_session.get("username", user_id)
+
+    if payload.code not in sio.rooms(sid):
+        await sio.emit("error", {"message": _ERR_NOT_IN_ROOM}, to=sid)
+        return
+
+    await sio.leave_room(sid, payload.code)
+
+    redis = get_redis()
+    await cast("Any", redis.srem(_room_sids_key(payload.code), sid))
+    await redis.delete(f"player_room:{sid}")
+
+    await sio.emit(
+        "player_left",
+        {"player_id": user_id, "name": username},
+        room=payload.code,
+    )
+    await sio.emit("left_game", {}, to=sid)
+
+    _cancel_pending_leave(payload.code, user_id)
+    svc = RoomService(redis)
+    room_after = await svc.leave_room(payload.code, user_id)
+
+    # If no players remain, clean up game session and room
+    if not room_after or not room_after.get("players"):
+        session = _active_sessions.pop(payload.code, None)
+        if session is not None:
+            _cancel_round_timer(payload.code)
+            logger.info("game session cleaned up (last player left) room=%s", payload.code)
+    else:
+        # The survivors need the new roster (and possibly their new host) —
+        # the finished screen decides who gets the replay buttons from it.
+        await sio.emit("room_updated", public_room(room_after), room=payload.code)
+
+    logger.info("player left game sid=%s room=%s user=%s", sid, payload.code, user_id)
+
+
+async def _handle_return_to_lobby(sid: str, data: object) -> None:
+    SOCKETIO_EVENTS_TOTAL.labels(event="return_to_lobby").inc()
+    try:
+        payload = JoinRoomPayload.model_validate(data)
+    except ValidationError:
+        await sio.emit("error", {"message": "Invalid return_to_lobby payload"}, to=sid)
+        return
+
+    sio_session = await sio.get_session(sid)
+    user_id: str = sio_session["user_id"]
+
+    if payload.code not in sio.rooms(sid):
+        await sio.emit("error", {"message": _ERR_NOT_IN_ROOM}, to=sid)
+        return
+
+    redis = get_redis()
+    svc = RoomService(redis)
+    room = await svc.get_room(payload.code)
+    if room is None:
+        await sio.emit("error", {"message": _ERR_ROOM_NOT_FOUND}, to=sid)
+        return
+    if room["host_id"] != user_id:
+        await sio.emit("error", {"message": _ERR_HOST_ONLY_LOBBY}, to=sid)
+        return
+
+    _active_sessions.pop(payload.code, None)
+    _cancel_round_timer(payload.code)
+
+    await svc.set_status(payload.code, "lobby")
+    await sio.emit("returned_to_lobby", {"code": payload.code}, room=payload.code)
+    await sio.emit("ambiance_update", get_ambiance_for_moment("lobby"), room=payload.code)
+    logger.info("return_to_lobby room=%s by=%s", payload.code, user_id)
+
+
+async def _handle_replay_game(sid: str, data: object) -> None:
+    SOCKETIO_EVENTS_TOTAL.labels(event="replay_game").inc()
+    try:
+        payload = JoinRoomPayload.model_validate(data)
+    except ValidationError:
+        await sio.emit("error", {"message": "Invalid replay_game payload"}, to=sid)
+        return
+
+    sio_session = await sio.get_session(sid)
+    user_id: str = sio_session["user_id"]
+
+    if payload.code not in sio.rooms(sid):
+        await sio.emit("error", {"message": _ERR_NOT_IN_ROOM}, to=sid)
+        return
+
+    redis = get_redis()
+    svc = RoomService(redis)
+    room = await svc.get_room(payload.code)
+    if room is None:
+        await sio.emit("error", {"message": _ERR_ROOM_NOT_FOUND}, to=sid)
+        return
+    if room["host_id"] != user_id:
+        await sio.emit("error", {"message": _ERR_HOST_ONLY_REPLAY}, to=sid)
+        return
+
+    # Atomic per-room cooldown via Redis SET NX EX. Returns None if the key
+    # already exists (still in cooldown), True if we acquired it.
+    acquired = await redis.set(
+        f"replay_cooldown:{payload.code}",
+        "1",
+        ex=_REPLAY_COOLDOWN_SECONDS,
+        nx=True,
+    )
+    if not acquired:
+        await sio.emit("error", {"message": _ERR_REPLAY_COOLDOWN}, to=sid)
+        return
+
+    _active_sessions.pop(payload.code, None)
+    _cancel_round_timer(payload.code)
+
+    mode_name: str = room.get("settings", {}).get("game_mode", "blindtest")
+    try:
+        mode = registry.create(mode_name)
+    except KeyError:
+        await sio.emit("error", {"message": f"Unknown game mode: {mode_name}"}, to=sid)
+        return
+
+    game_session = GameSession(mode)
+    _active_sessions[payload.code] = game_session
+
+    await game_session.start(
+        players=room["players"],
+        settings=room["settings"],
+        track_provider=RoomScopedDeezerClient(redis, payload.code),
+    )
+
+    if game_session.get_state().get("phase") == PHASE_FINISHED:
+        logger.warning("replay_game aborted: no tracks available room=%s", payload.code)
+        _active_sessions.pop(payload.code, None)
+        await sio.emit("error", {"message": "No tracks available for these settings"}, to=sid)
+        return
+
+    await svc.set_status(payload.code, "playing")
+    state = game_session.get_state()
+    await sio.emit("game_state", state, room=payload.code)
+    await sio.emit("ambiance_update", get_ambiance_for_moment("countdown"), room=payload.code)
+    logger.info("replay_game room=%s mode=%s by=%s", payload.code, mode_name, user_id)
+
+
 def register_handlers() -> None:
     sio.on("connect", handler=_handle_connect)
     sio.on("disconnect", handler=_handle_disconnect)
@@ -476,3 +922,6 @@ def register_handlers() -> None:
     sio.on("reaction", handler=_handle_reaction)
     sio.on("soundboard", handler=_handle_soundboard)
     sio.on("kick_player", handler=_handle_kick_player)
+    sio.on("leave_game", handler=_handle_leave_game)
+    sio.on("return_to_lobby", handler=_handle_return_to_lobby)
+    sio.on("replay_game", handler=_handle_replay_game)

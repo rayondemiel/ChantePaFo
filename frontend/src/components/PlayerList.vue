@@ -47,6 +47,7 @@
 <script setup lang="ts">
 import type { Player } from '../types'
 import { useAuthStore } from '../stores/auth'
+import { getPlayerHue } from '../lib/playerHue'
 
 withDefaults(
   defineProps<{
@@ -62,19 +63,6 @@ const emit = defineEmits<{
 
 const auth = useAuthStore()
 const currentUserId = auth.userId
-
-/**
- * Stable hash → hue: every player gets their own neon color based on their
- * user id, so the roster looks like a real club guest list, not a flat list.
- */
-function getPlayerHue(id: string): number {
-  let h = 5381
-  for (const ch of id) {
-    // codePointAt(0) handles surrogate pairs correctly, unlike charCodeAt.
-    h = ((h << 5) + h + (ch.codePointAt(0) ?? 0)) >>> 0
-  }
-  return h % 360
-}
 </script>
 
 <style scoped>

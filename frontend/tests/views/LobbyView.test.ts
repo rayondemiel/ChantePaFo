@@ -46,7 +46,7 @@ const baseRoom: RoomState = {
     game_mode: 'blindtest',
     genres: { pop: 2, rock: 3 },
     num_rounds: 10,
-    extract_duration: 20,
+    extract_duration: 30,
     karaoke_variant: 'classic',
   },
   status: 'lobby',
@@ -138,6 +138,11 @@ describe('LobbyView', () => {
     expect(socketMock.emit).toHaveBeenCalledWith('join_room', { code: 'FUNK4242' })
   })
 
+  it('renders the VolumeControl in the header', async () => {
+    ;({ wrapper, router } = await mountLobby())
+    expect(wrapper!.find('.volume-control').exists()).toBe(true)
+  })
+
   it('renders the marquee code, host name and player count', async () => {
     ;({ wrapper, router } = await mountLobby())
     expect(wrapper!.text()).toContain('FUNK4242')
@@ -158,6 +163,38 @@ describe('LobbyView', () => {
     // Readout row shows the mode label from room.settings
     expect(wrapper!.text()).toContain('Blindtest')
     expect(wrapper!.text()).toContain('10')
+  })
+
+  it('initialises the host console from the server settings', async () => {
+    ;({ wrapper, router } = await mountLobby({
+      asHost: true,
+      room: {
+        ...baseRoom,
+        settings: {
+          game_mode: 'karaoke',
+          genres: { rock: 3 },
+          num_rounds: 3,
+          extract_duration: 30,
+          karaoke_variant: 'progressive',
+        },
+      },
+    }))
+    expect(wrapper!.find('.mode-card.active').text()).toContain('Karaoké')
+    expect(wrapper!.find('.seg-group-tight .seg.active').text()).toBe('3')
+    expect(wrapper!.findAll('.seg.active').map((s) => s.text())).toContain('Progressif')
+    expect(wrapper!.find('.launch-meta').text()).toContain('3 manches')
+    expect(wrapper!.findAll('.genre-selector .chip.active').map((c) => c.text())).toEqual(['Rock'])
+  })
+
+  it('host console follows room_updated settings', async () => {
+    ;({ wrapper, router } = await mountLobby({ asHost: true }))
+    fireSocket('room_updated', {
+      ...baseRoom,
+      settings: { ...baseRoom.settings, num_rounds: 5, game_mode: 'telephone' },
+    })
+    await flushPromises()
+    expect(wrapper!.find('.seg-group-tight .seg.active').text()).toBe('5')
+    expect(wrapper!.find('.mode-card.active').text()).toContain('Téléphone')
   })
 
   it('setMode click emits update_settings with the new mode', async () => {
@@ -204,7 +241,12 @@ describe('LobbyView', () => {
     const pushSpy = vi.spyOn(router!, 'push')
     await danger!.trigger('click')
     await flushPromises()
+    // Explicit leave first: the server drops us immediately instead of
+    // waiting out the reconnect grace period it grants to page reloads.
+    expect(socketMock.emit).toHaveBeenCalledWith('leave_game', { code: 'FUNK4242' })
     expect(socketMock.disconnect).toHaveBeenCalled()
+    const leaveOrder = socketMock.emit.mock.invocationCallOrder.at(-1)!
+    expect(leaveOrder).toBeLessThan(socketMock.disconnect.mock.invocationCallOrder[0])
     expect(pushSpy).toHaveBeenCalledWith('/')
   })
 
