@@ -614,6 +614,20 @@ const displayAwards = computed<Award[]>(() => gameStore.awards)
 // Setlist recap: classify each played track for the ceremony. Semantic color
 // says WHAT was found (title/artist/both), player hue says WHO — the exact
 // grammar the waveform markers taught during the game.
+type SetlistKind = 'parfait' | 'split' | 'title' | 'artist' | 'nobody'
+
+function classifySetlistEntry(
+  firstTitle: FirstFinder | null,
+  firstArtist: FirstFinder | null,
+): SetlistKind {
+  if (firstTitle && firstArtist) {
+    return firstTitle.player_id === firstArtist.player_id ? 'parfait' : 'split'
+  }
+  if (firstTitle) return 'title'
+  if (firstArtist) return 'artist'
+  return 'nobody'
+}
+
 const setlist = computed(() => {
   const entries = gameStore.tracklist
   const titleTimes = entries
@@ -622,20 +636,8 @@ const setlist = computed(() => {
     .map((f) => f.time_ms)
   const fastestTitleMs = titleTimes.length > 1 ? Math.min(...titleTimes) : null
   return entries.map((e) => {
-    const parfait =
-      e.first_title !== null &&
-      e.first_artist !== null &&
-      e.first_title.player_id === e.first_artist.player_id
-    const nobody = e.first_title === null && e.first_artist === null
-    const kind = parfait
-      ? 'parfait'
-      : nobody
-        ? 'nobody'
-        : e.first_title && e.first_artist
-          ? 'split'
-          : e.first_title
-            ? 'title'
-            : 'artist'
+    const kind = classifySetlistEntry(e.first_title, e.first_artist)
+    const parfait = kind === 'parfait'
     return {
       ...e,
       kind,

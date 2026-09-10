@@ -416,6 +416,68 @@ async def _handle_start_game(sid: str, data: object) -> None:
     PLAYERS_PER_ROOM.observe(player_count)
 
 
+def _match_type(result: dict[str, Any]) -> str:
+    if result.get("bonus"):
+        return "bonus"
+    return "title" if result.get("title_match") else "artist"
+
+
+def _attach_track_reveal(mode: BlindtestMode, result: dict[str, Any]) -> None:
+    round_idx = int(mode.state.get("current_round", 0))
+    if not 0 <= round_idx < len(mode.tracks):
+        return
+    track = mode.tracks[round_idx]
+    result["correct_title"] = track["title"]
+    result["correct_artist"] = track["artist"]
+    result["cover_url"] = track.get("cover_url", "")
+
+
+async def _bound_fuzzy_text(
+    sid: str, event_type: str, event_payload: dict[str, Any]
+) -> dict[str, Any] | None:
+    # Cap text length on any event that ends up in fuzzy_match() to prevent
+    # Levenshtein-DoS via huge payloads (a 1MB string against a 30-char title
+    # would block the asyncio worker for seconds). Server is also authoritative
+    # for timing on blindtest answers — any client-supplied time_ms is
+    # discarded, BlindtestMode recomputes from its own monotonic clock.
+    # Returns None when the payload was rejected (error already emitted).
+    if event_type == "answer":
+        try:
+            answer = AnswerPayload.model_validate(event_payload)
+        except ValidationError:
+            await sio.emit("error", {"message": "Invalid answer payload"}, to=sid)
+            return None
+        return {"text": answer.text}
+
+    if event_type in ("guess", "submit_step"):
+        # Karaoke (guess) and telephone (submit_step write) feed text into
+        # fuzzy_match too. submit_step also carries audio_url for the singing
+        # variant — pass it through unchanged but bound the text field.
+        text = event_payload.get("text", "")
+        if isinstance(text, str) and len(text) > _MAX_FUZZY_TEXT_LEN:
+            await sio.emit("error", {"message": "Answer too long"}, to=sid)
+            return None
+
+    return event_payload
+
+
+async def _emit_answer_feedback(
+    code: str, user_id: str, mode: BlindtestMode, result: dict[str, Any]
+) -> None:
+    if result.get("title_match") or result.get("artist_match"):
+        await sio.emit(
+            "player_match",
+            {
+                "player_id": user_id,
+                "time_ms": result.get("time_ms", 0),
+                "match_type": _match_type(result),
+            },
+            room=code,
+        )
+    if result.get("bonus") is True:
+        _attach_track_reveal(mode, result)
+
+
 async def _handle_game_event(sid: str, data: object) -> None:
     SOCKETIO_EVENTS_TOTAL.labels(event="game_event").inc()
     try:
@@ -436,54 +498,14 @@ async def _handle_game_event(sid: str, data: object) -> None:
         await sio.emit("error", {"message": _ERR_NO_ACTIVE_SESSION}, to=sid)
         return
 
-    # Cap text length on any event that ends up in fuzzy_match() to prevent
-    # Levenshtein-DoS via huge payloads (a 1MB string against a 30-char title
-    # would block the asyncio worker for seconds). Server is also authoritative
-    # for timing on blindtest answers — any client-supplied time_ms is
-    # discarded, BlindtestMode recomputes from its own monotonic clock.
-    event_payload: dict[str, Any] = payload.payload
-    if payload.event_type == "answer":
-        try:
-            answer = AnswerPayload.model_validate(event_payload)
-        except ValidationError:
-            await sio.emit("error", {"message": "Invalid answer payload"}, to=sid)
-            return
-        event_payload = {"text": answer.text}
-    elif payload.event_type in ("guess", "submit_step"):
-        # Karaoke (guess) and telephone (submit_step write) feed text into
-        # fuzzy_match too. submit_step also carries audio_url for the singing
-        # variant — pass it through unchanged but bound the text field.
-        text = event_payload.get("text", "")
-        if isinstance(text, str) and len(text) > _MAX_FUZZY_TEXT_LEN:
-            await sio.emit("error", {"message": "Answer too long"}, to=sid)
-            return
+    event_payload = await _bound_fuzzy_text(sid, payload.event_type, payload.payload)
+    if event_payload is None:
+        return
 
     result = await game_session.handle_event(payload.event_type, user_id, event_payload)
     if result is not None:
         if payload.event_type == "answer" and isinstance(game_session.mode, BlindtestMode):
-            if result.get("title_match") or result.get("artist_match"):
-                match_type = (
-                    "bonus"
-                    if result.get("bonus")
-                    else ("title" if result.get("title_match") else "artist")
-                )
-                await sio.emit(
-                    "player_match",
-                    {
-                        "player_id": user_id,
-                        "time_ms": result.get("time_ms", 0),
-                        "match_type": match_type,
-                    },
-                    room=payload.code,
-                )
-            if result.get("bonus") is True:
-                mode = game_session.mode
-                round_idx = int(mode.state.get("current_round", 0))
-                if 0 <= round_idx < len(mode.tracks):
-                    track = mode.tracks[round_idx]
-                    result["correct_title"] = track["title"]
-                    result["correct_artist"] = track["artist"]
-                    result["cover_url"] = track.get("cover_url", "")
+            await _emit_answer_feedback(payload.code, user_id, game_session.mode, result)
         await sio.emit("game_event_result", result, to=sid)
 
     state = game_session.get_state()
