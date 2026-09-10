@@ -770,7 +770,7 @@ describe('BlindtestRound', () => {
     const ranking = wrapper.find('.live-ranking')
     expect(ranking.exists()).toBe(true)
     const rows = wrapper.findAll('.ranking-row')
-    expect(rows.length).toBe(1)
+    expect(rows).toHaveLength(1)
     expect(rows[0].text()).toContain('Bob')
     expect(rows[0].classes()).toContain('ranking-partial')
   })
