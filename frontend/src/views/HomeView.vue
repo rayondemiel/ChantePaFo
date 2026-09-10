@@ -66,6 +66,7 @@ import { useAuthStore } from '../stores/auth'
 import { useRoomStore } from '../stores/room'
 import { useSocket } from '../composables/useSocket'
 import { useBreakpoint } from '../composables/useBreakpoint'
+import { randomToken } from '../lib/random'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -108,7 +109,7 @@ async function ensureAuth(name: string): Promise<boolean> {
       .replace(/[^a-z0-9_.-]/g, '_')
       .replace(/_+/g, '_')
       // 18 + 1 + 8 + 4 chars stays under the backend's 32-char username cap.
-      .slice(0, 18) + `_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+      .slice(0, 18) + `_${Date.now().toString(36)}${randomToken(4)}`
   const email = `${safeUsername}@chantepafo.app`
   const password = crypto.randomUUID()
   const resp = await fetch('/api/auth/register', {

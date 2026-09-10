@@ -31,6 +31,7 @@ import { useSocket } from '../composables/useSocket'
 import { useRoomStore } from '../stores/room'
 import { useGameStore } from '../stores/game'
 import { getPlayerHue } from '../lib/playerHue'
+import { randomUnit } from '../lib/random'
 
 const REACTIONS = ['😂', '👏', '💀', '🔥', '😱', '❤️'] as const
 
@@ -66,15 +67,15 @@ function send(emoji: string): void {
 }
 
 function spawnX(): number {
-  // Math.random is fine here: this only picks where a decorative emoji drifts
-  // on screen. Identity and ordering come from the server, never from here.
-  // While players are heads-down answering, floats stay in the side gutters
-  // so they geometrically cannot cross the input, waveform or countdown.
+  // Only picks where a decorative emoji drifts on screen; identity and
+  // ordering come from the server, never from here. While players are
+  // heads-down answering, floats stay in the side gutters so they
+  // geometrically cannot cross the input, waveform or countdown.
   if (gameStore.state?.phase === 'playing') {
-    const gutterOffset = 4 + Math.random() * 12
-    return Math.random() < 0.5 ? gutterOffset : 96 - gutterOffset + 4
+    const gutterOffset = 4 + randomUnit() * 12
+    return randomUnit() < 0.5 ? gutterOffset : 96 - gutterOffset + 4
   }
-  return 10 + Math.random() * 80
+  return 10 + randomUnit() * 80
 }
 
 function onReactionReceived(data: unknown): void {
@@ -86,7 +87,7 @@ function onReactionReceived(data: unknown): void {
     emoji: d.emoji,
     name: d.player_name ?? '',
     x: spawnX(),
-    drift: (Math.random() - 0.5) * 20,
+    drift: (randomUnit() - 0.5) * 20,
     hue: getPlayerHue(d.player_id ?? d.player_name ?? ''),
   })
   if (floating.value.length > MAX_FLOATS) {

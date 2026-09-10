@@ -274,3 +274,11 @@ async def test_room_scoped_client_survives_redis_failure():
         tracks = await client.get_random_tracks({"pop": 1}, count=1)
     # Game still works even if Redis is down.
     assert tracks == fresh
+
+
+def test_track_sampling_uses_the_os_csprng():
+    import random
+
+    from app.music import deezer
+
+    assert isinstance(deezer._rng, random.SystemRandom)

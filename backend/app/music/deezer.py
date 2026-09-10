@@ -12,6 +12,11 @@ logger = logging.getLogger(__name__)
 
 _API_TIMEOUT = 10.0  # seconds
 
+# Track/playlist sampling only needs variety, not secrecy, but drawing from
+# the OS CSPRNG costs nothing here and keeps every random source in the app
+# out of the "insecure PRNG" bucket.
+_rng = random.SystemRandom()
+
 # Each genre lists multiple playlist queries — sampled at random per game so
 # the same room never sees the same starting catalog twice in a row.
 # `search` is the keyword fallback when playlists return too few tracks.
@@ -609,7 +614,7 @@ class DeezerClient:
             return await self.search(search_q, limit=50)
 
         sample_size = min(playlists_per_query, len(candidates))
-        chosen = random.sample(candidates, sample_size)  # nosec B311
+        chosen = _rng.sample(candidates, sample_size)
 
         tracks: list[dict[str, Any]] = []
         for pl in chosen:
@@ -636,7 +641,7 @@ class DeezerClient:
 
         playlists_pool: list[str] = list(config["playlists"])
         sample_n = min(num_queries, len(playlists_pool))
-        chosen_queries = random.sample(playlists_pool, sample_n)  # nosec B311
+        chosen_queries = _rng.sample(playlists_pool, sample_n)
 
         all_tracks: list[dict[str, Any]] = []
         for query in chosen_queries:
@@ -718,7 +723,7 @@ class DeezerClient:
 
         # If exclusion left us short, we still ship what we have (caller
         # handles short rounds). The shuffle ensures variety across games.
-        random.shuffle(unique)  # nosec B311
+        _rng.shuffle(unique)
         return unique[:count]
 
 
