@@ -171,6 +171,25 @@ def test_fuzzy_strips_radio_edit():
     assert result["title_match"] is True
 
 
+def test_fuzzy_accepts_the_full_displayed_title_with_noise():
+    # A player who types the title exactly as Deezer shows it (parenthetical
+    # included) must not be told they missed.
+    result = fuzzy_match("Dracula (with JENNIE)", "Dracula (with JENNIE)", "Tame Impala")
+    assert result["title_match"] is True
+
+
+def test_fuzzy_accepts_full_title_with_noise_plus_artist():
+    result = fuzzy_match(
+        "Titanium (feat. Sia) David Guetta", "Titanium (feat. Sia)", "David Guetta"
+    )
+    assert result["bonus"] is True
+
+
+def test_fuzzy_noise_in_answer_does_not_create_false_positive():
+    result = fuzzy_match("Nothing (Radio Edit)", "Get Lucky (Radio Edit)", "Daft Punk")
+    assert result["title_match"] is False
+
+
 # --- Composite artist matching ---
 
 

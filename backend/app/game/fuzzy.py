@@ -141,6 +141,10 @@ def _combined_matches(answer: str, clean_title: str, correct_artist: str, partia
 def fuzzy_match(answer: str, correct_title: str, correct_artist: str) -> dict[str, Any]:
     start = time.perf_counter()
 
+    # Players sometimes type the title exactly as displayed, parenthetical
+    # noise included ("Dracula (with JENNIE)"): strip it on both sides so the
+    # comparison happens on the same canonical form.
+    answer = _strip_title_noise(answer) or answer
     clean_title = _strip_title_noise(correct_title)
     title_match, title_dist = _is_match(answer, clean_title)
 
