@@ -67,12 +67,15 @@ function onSubmit() {
 }
 
 function resultToFeedback(result: FuzzyResult): Feedback {
+  // Points are final for the round the moment a match lands, so show them
+  // right away instead of leaving the player guessing until the reveal.
+  const gain = result.points && result.points > 0 ? ` +${result.points}` : ''
   if (result.bonus) {
-    return { label: 'Parfait !', cls: 'feedback-correct anim-correct-pop' }
+    return { label: `Parfait !${gain}`, cls: 'feedback-correct anim-correct-pop' }
   } else if (result.title_match) {
-    return { label: 'Titre \u2713', cls: 'feedback-correct anim-correct-pop' }
+    return { label: `Titre \u2713${gain}`, cls: 'feedback-correct anim-correct-pop' }
   } else if (result.artist_match) {
-    return { label: 'Artiste \u2713', cls: 'feedback-correct feedback-soft' }
+    return { label: `Artiste \u2713${gain}`, cls: 'feedback-correct feedback-soft' }
   }
   return { label: 'Rat\u00e9...', cls: 'feedback-wrong anim-shake' }
 }

@@ -47,6 +47,10 @@ export interface GameState {
   }
   round_scores?: Record<string, number>
   extract_duration?: number
+  /** Milliseconds since the round started (server-computed), playing only. */
+  round_elapsed_ms?: number
+  /** Who found what so far this round (with points), playing only. */
+  round_matches?: Array<MatchInfo & { points?: number }>
   [key: string]: unknown
 }
 
@@ -54,6 +58,8 @@ export interface PlayerFoundEvent {
   player_id: string
   time_ms: number
   match_type?: 'title' | 'artist' | 'bonus'
+  /** Round points earned so far by this player (final for the round). */
+  points?: number
 }
 
 export interface AmbianceConfig {
@@ -94,4 +100,6 @@ export interface FuzzyResult {
   artist_match: boolean
   bonus: boolean
   distance: number
+  /** Round points earned so far, when the server sends them. */
+  points?: number
 }

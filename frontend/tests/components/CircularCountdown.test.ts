@@ -34,6 +34,14 @@ describe('CircularCountdown', () => {
     expect(wrapper.find('.value').text()).toBe('2')
   })
 
+  it('starts from the given elapsed offset (resume after a reload)', async () => {
+    const wrapper = mount(CircularCountdown, { props: { duration: 25, elapsed: 10 } })
+    expect(wrapper.find('.value').text()).toBe('15')
+    vi.advanceTimersByTime(1000)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.value').text()).toBe('14')
+  })
+
   it('emits finished when reaching 0', async () => {
     const wrapper = mount(CircularCountdown, { props: { duration: 2 } })
     vi.advanceTimersByTime(2100)

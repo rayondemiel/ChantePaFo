@@ -374,6 +374,56 @@ async def test_join_room_success(sio_env):
     assert await sio_env["redis"].get("player_room:sid-1") == code
 
 
+async def test_join_room_during_a_game_replays_the_state_to_the_newcomer(sio_env):
+    """A player who reloads mid-game reconnects with an empty store: the
+    join must hand them the current game_state (and the round ambiance) or
+    they sit on "Chargement..." until the next broadcast."""
+    await _connect(sio_env, "sid-1")
+    code = await _create_and_join(sio_env, "sid-1")
+    # Real draws always tag tracks with a genre (copies: _FAKE_TRACKS is shared).
+    tagged = [{**t, "genre": "rock"} for t in _FAKE_TRACKS]
+    await _start_game_mocked(sio_env, code, tracks=tagged)
+    await sio_env["handlers"]["game_event"](
+        "sid-1", {"code": code, "event_type": "countdown_done", "payload": {}}
+    )
+    app.sockets.handlers._cancel_round_timer(code)
+
+    await _connect(sio_env, "sid-2")
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["join_room"]("sid-2", {"code": code})
+
+    states = [e for e in sio_env["emitted"] if e["event"] == "game_state"]
+    assert len(states) == 1
+    assert states[0].get("to") == "sid-2"
+    assert states[0]["data"]["phase"] == "playing"
+    ambiances = [e for e in sio_env["emitted"] if e["event"] == "ambiance_update"]
+    assert len(ambiances) == 1
+    assert ambiances[0].get("to") == "sid-2"
+
+
+async def test_join_room_during_countdown_replays_the_countdown_ambiance(sio_env):
+    from app.ambiance.engine import get_ambiance_for_moment
+
+    await _connect(sio_env, "sid-1")
+    code = await _create_and_join(sio_env, "sid-1")
+    await _start_game_mocked(sio_env, code, tracks=[{**t, "genre": "rock"} for t in _FAKE_TRACKS])
+
+    await _connect(sio_env, "sid-2")
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["join_room"]("sid-2", {"code": code})
+
+    ambiances = [e for e in sio_env["emitted"] if e["event"] == "ambiance_update"]
+    assert ambiances[-1]["data"] == get_ambiance_for_moment("countdown")
+
+
+async def test_join_room_without_a_game_sends_no_state(sio_env):
+    await _connect(sio_env, "sid-1")
+    code = await _create_and_join(sio_env, "sid-1")
+    sio_env["emitted"].clear()
+    await sio_env["handlers"]["join_room"]("sid-1", {"code": code})
+    assert not [e for e in sio_env["emitted"] if e["event"] == "game_state"]
+
+
 async def test_join_room_invalid_payload(sio_env):
     await _connect(sio_env)
     await sio_env["handlers"]["join_room"]("sid-1", {})  # missing code
@@ -1050,6 +1100,9 @@ async def test_player_match_emitted_on_bonus_match_with_type_bonus(sio_env, monk
     assert match_events[0]["data"]["player_id"] == "test-user-1"
     assert match_events[0]["data"]["time_ms"] == 1500
     assert match_events[0]["data"]["match_type"] == "bonus"
+    # Points earned so far in the round travel with the match so every
+    # screen can show "+N" next to the finder without waiting for the reveal.
+    assert match_events[0]["data"]["points"] > 0
 
 
 async def test_player_match_emitted_on_title_only_match(sio_env):
@@ -1155,7 +1208,7 @@ async def test_player_match_payload_has_no_leak(sio_env):
     match_events = [e for e in sio_env["emitted"] if e["event"] == "player_match"]
     assert len(match_events) == 1
     payload = match_events[0]["data"]
-    assert set(payload.keys()) == {"player_id", "time_ms", "match_type"}
+    assert set(payload.keys()) == {"player_id", "time_ms", "match_type", "points"}
     assert "correct_title" not in payload
     assert "correct_artist" not in payload
     assert "cover_url" not in payload

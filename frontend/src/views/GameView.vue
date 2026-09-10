@@ -141,6 +141,34 @@ function onConfirmQuit() {
   socketEmit('leave_game', { code: roomStore.room?.code ?? props.code })
 }
 
+/**
+ * A page reload lands here with empty stores: re-enter the Socket.IO room
+ * (the server replays the current game_state to us) and refetch the room so
+ * the mode, the roster and our host status are known. If the game is over
+ * or the room is gone, route the player somewhere sensible instead of
+ * leaving them on "Chargement...".
+ */
+async function resumeRoom() {
+  socketEmit('join_room', { code: props.code })
+  let resp: Response
+  try {
+    resp = await auth.authFetch(`/api/rooms/${props.code}`)
+  } catch {
+    return // offline for a moment: the socket events will catch us up
+  }
+  if (resp.status === 404) {
+    router.replace('/')
+    return
+  }
+  if (!resp.ok) return
+  const data = await resp.json()
+  roomStore.setRoom(data.room as RoomState)
+  if (data.room?.status !== 'playing') {
+    gameStore.reset()
+    router.replace(`/${props.code}`)
+  }
+}
+
 onMounted(() => {
   if (!auth.token) {
     router.replace('/')
@@ -155,6 +183,7 @@ onMounted(() => {
   on('left_game', onLeftGame)
   on('returned_to_lobby', onReturnedToLobby)
   startAmbiance()
+  void resumeRoom()
 })
 
 onUnmounted(() => {

@@ -41,8 +41,10 @@ const props = withDefaults(
   defineProps<{
     duration: number
     running?: boolean
+    /** Seconds already elapsed when the timer starts (resume mid-round). */
+    elapsed?: number
   }>(),
-  { running: true },
+  { running: true, elapsed: 0 },
 )
 
 const emit = defineEmits<{
@@ -50,13 +52,13 @@ const emit = defineEmits<{
 }>()
 
 const circumference = 2 * Math.PI * 28
-const remainingMs = ref(Math.max(0, props.duration) * 1000)
+const remainingMs = ref(Math.max(0, props.duration * 1000 - Math.max(0, props.elapsed) * 1000))
 const handle = ref<ReturnType<typeof globalThis.setInterval> | null>(null)
 const digitTick = ref(false)
 let startedAt = 0
 let elapsedAtPause = 0
 let finishedFired = false
-let lastDisplaySecond = Math.ceil(props.duration)
+let lastDisplaySecond = Math.ceil(remainingMs.value / 1000)
 // Per-instance id so several countdowns on screen don't share a <linearGradient>.
 const gradientId = `circular-countdown-gradient-${useId()}`
 
@@ -121,10 +123,10 @@ function tick() {
 function startInterval() {
   stopInterval()
   finishedFired = false
-  elapsedAtPause = 0
-  remainingMs.value = Math.max(0, props.duration) * 1000
+  elapsedAtPause = Math.max(0, props.elapsed) * 1000
+  remainingMs.value = Math.max(0, props.duration * 1000 - elapsedAtPause)
   startedAt = Date.now()
-  lastDisplaySecond = Math.ceil(props.duration)
+  lastDisplaySecond = Math.ceil(remainingMs.value / 1000)
   handle.value = globalThis.setInterval(tick, 100)
 }
 

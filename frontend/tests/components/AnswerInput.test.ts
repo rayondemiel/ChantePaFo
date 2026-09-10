@@ -83,6 +83,19 @@ describe('AnswerInput', () => {
     expect(wrapper.get('.feedback-correct').text()).toContain('Titre')
   })
 
+  it('appends the points earned to a match feedback', async () => {
+    const wrapper = mount(AnswerInput)
+    ;(wrapper.vm as unknown as { setResult: (r: FuzzyResult) => void }).setResult({
+      title_match: true,
+      artist_match: false,
+      bonus: false,
+      distance: 0,
+      points: 750,
+    })
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('.feedback-correct').text()).toContain('+750')
+  })
+
   it('shows "Artiste" for artist match only', async () => {
     const wrapper = mount(AnswerInput)
     ;(wrapper.vm as unknown as { setResult: (r: FuzzyResult) => void }).setResult({

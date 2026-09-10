@@ -60,6 +60,7 @@
               v-if="phase === 'playing'"
               class="playing-countdown"
               :duration="playingDuration"
+              :elapsed="roundElapsedAtStart"
               :running="phase === 'playing'"
             />
             <TrackWaveform
@@ -105,6 +106,7 @@
                   matchLabel(entry.match_type)
                 }}</span>
                 <span class="ticker-time">{{ formatTime(entry.time_ms) }}</span>
+                <span v-if="entry.points > 0" class="ticker-points">+{{ entry.points }}</span>
                 <span
                   v-if="entry.match_type === 'bonus' && isFirstBonus(entry.player_id)"
                   class="ticker-badge"
@@ -357,6 +359,7 @@
                   {{ matchLabel(entry.match_type) }}
                 </span>
                 <span class="ranking-time">{{ formatTime(entry.time_ms) }}</span>
+                <span v-if="entry.points > 0" class="ranking-points">+{{ entry.points }}</span>
               </li>
             </TransitionGroup>
           </ol>
@@ -398,7 +401,7 @@ const answerRef = ref<InstanceType<typeof AnswerInput> | null>(null)
 const audioRef = ref<HTMLAudioElement | null>(null)
 const locallyFound = ref(false)
 const liveFound = ref<
-  Array<{ player_id: string; name: string; time_ms: number; match_type: string }>
+  Array<{ player_id: string; name: string; time_ms: number; match_type: string; points: number }>
 >([])
 const localAnswer = ref<{
   correct_title: string
@@ -412,6 +415,10 @@ const REVEAL_WINDOW_SECONDS = 5
 
 watchEffect(() => {
   if (audioRef.value && !detachMusic) {
+    // Resume mid-track after a reload so the music matches the timer.
+    if (roundElapsedAtStart.value > 0) {
+      audioRef.value.currentTime = roundElapsedAtStart.value
+    }
     detachMusic = attachMusic(audioRef.value)
     // Wire the audio into the ambiance analyser so --ambiance-intensity pulses
     // with the bass while music plays. Safe because the <audio> declares
@@ -451,12 +458,28 @@ const playingDuration = computed(() => {
 })
 
 const playElapsed = ref(0)
+/** Seconds already gone when the local timer started (non-zero after a
+ *  reload mid-round): the ring, the waveform and the audio resume from it. */
+const roundElapsedAtStart = ref(0)
 let playElapsedHandle: ReturnType<typeof globalThis.setInterval> | null = null
+
+function roundOriginMs(): number {
+  // The server ships how long the round has been running (its own clock is
+  // monotonic, so an absolute timestamp would be meaningless here). Use it
+  // when plausible — a reload mid-round lands with 10s already gone.
+  const elapsed = gameStore.state?.round_elapsed_ms
+  const now = Date.now()
+  if (typeof elapsed === 'number' && elapsed > 0 && elapsed <= playingDuration.value * 1000) {
+    return now - elapsed
+  }
+  return now
+}
 
 function startPlayElapsedTimer() {
   stopPlayElapsedTimer()
-  playElapsed.value = 0
-  const origin = Date.now()
+  const origin = roundOriginMs()
+  playElapsed.value = Date.now() - origin
+  roundElapsedAtStart.value = Math.floor(playElapsed.value / 1000)
   playElapsedHandle = globalThis.setInterval(() => {
     playElapsed.value = Date.now() - origin
   }, 200)
@@ -559,6 +582,7 @@ interface RankingEntry {
   name: string
   match_type: string
   time_ms: number
+  points: number
 }
 
 const liveRankingFound = computed<RankingEntry[]>(() => {
@@ -571,6 +595,7 @@ const liveRankingFound = computed<RankingEntry[]>(() => {
       name: playerNames.get(f.player_id) ?? f.name,
       match_type: f.match_type,
       time_ms: f.time_ms,
+      points: f.points,
     }))
     .sort((a, b) => {
       const pa = typePriority[a.match_type] ?? 2
@@ -591,8 +616,16 @@ watch(
     if (newPhase === 'playing' && oldPhase !== 'playing') {
       locallyFound.value = false
       localAnswer.value = null
-      liveFound.value = []
       answerRef.value?.clearResult()
+      // Joining a round already in progress (reload): the state carries the
+      // matches broadcast before we were listening.
+      liveFound.value = (gameStore.state?.round_matches ?? []).map((m) => ({
+        player_id: m.player_id,
+        name: playerNameById(m.player_id) || m.name,
+        time_ms: m.time_ms,
+        match_type: m.match_type,
+        points: typeof m.points === 'number' ? m.points : 0,
+      }))
     }
     if (newPhase === 'round_pause' && oldPhase === 'playing_reveal' && audioRef.value) {
       audioRef.value.pause()
@@ -723,6 +756,7 @@ function onPlayerMatch(data: unknown) {
   const d = data as PlayerFoundEvent
   if (!d || typeof d.player_id !== 'string') return
   const matchType = d.match_type ?? 'bonus'
+  const points = typeof d.points === 'number' ? d.points : 0
   const existing = liveFound.value.findIndex((e) => e.player_id === d.player_id)
   if (existing >= 0) {
     const updated = [...liveFound.value]
@@ -732,6 +766,7 @@ function onPlayerMatch(data: unknown) {
       ...updated[existing],
       time_ms: d.time_ms,
       match_type: matchType,
+      points,
     }
     liveFound.value = updated.sort((a, b) => a.time_ms - b.time_ms)
   } else {
@@ -742,6 +777,7 @@ function onPlayerMatch(data: unknown) {
         name: playerNameById(d.player_id),
         time_ms: d.time_ms,
         match_type: matchType,
+        points,
       },
     ].sort((a, b) => a.time_ms - b.time_ms)
   }
@@ -750,6 +786,7 @@ function onPlayerMatch(data: unknown) {
 function onEventResult(data: unknown) {
   const d = data as FuzzyResult & {
     player_id?: string
+    round_points?: number
     correct_title?: string
     correct_artist?: string
     cover_url?: string
@@ -760,6 +797,7 @@ function onEventResult(data: unknown) {
     artist_match: d.artist_match,
     bonus: d.bonus,
     distance: d.distance,
+    points: typeof d.round_points === 'number' ? d.round_points : undefined,
   })
   if (d.bonus && d.correct_title && d.correct_artist) {
     locallyFound.value = true
@@ -1117,6 +1155,15 @@ onBeforeUnmount(() => {
   font-family: var(--font-display);
   color: var(--color-warning);
   letter-spacing: 1px;
+}
+
+.ticker-points,
+.ranking-points {
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  color: var(--color-success);
+  text-shadow: 0 0 8px rgba(var(--color-success-rgb), 0.5);
+  animation: score-bump 0.4s var(--ease-bounce);
 }
 
 .ticker-badge {

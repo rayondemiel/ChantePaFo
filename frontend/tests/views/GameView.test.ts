@@ -180,6 +180,73 @@ describe('GameView', () => {
     expect(wrapper.find('.zone-info-main').text()).not.toContain(phase)
   })
 
+  it('re-enters the socket room and reloads the room on mount (page reload mid-game)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          room: {
+            code: 'FUNK4242',
+            players: [{ id: 'u1', name: 'Alice', is_host: true }],
+            settings: {
+              game_mode: 'blindtest',
+              genres: { all: 2 },
+              num_rounds: 5,
+              extract_duration: 30,
+              karaoke_variant: 'classic',
+            },
+            status: 'playing',
+          },
+        }),
+        { status: 200 },
+      ),
+    )
+    const { pinia } = await mountGame({ authenticated: true })
+    await flushPromises()
+    setActivePinia(pinia)
+    expect(socketMock.emit).toHaveBeenCalledWith('join_room', { code: 'FUNK4242' })
+    expect(fetchSpy).toHaveBeenCalledWith('/api/rooms/FUNK4242', expect.anything())
+    expect(useRoomStore().room?.code).toBe('FUNK4242')
+    fetchSpy.mockRestore()
+  })
+
+  it('sends the player back to the lobby when the room is no longer playing', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          room: {
+            code: 'FUNK4242',
+            players: [{ id: 'u1', name: 'Alice', is_host: true }],
+            settings: {
+              game_mode: 'blindtest',
+              genres: { all: 2 },
+              num_rounds: 5,
+              extract_duration: 30,
+              karaoke_variant: 'classic',
+            },
+            status: 'lobby',
+          },
+        }),
+        { status: 200 },
+      ),
+    )
+    const { router } = await mountGame({ authenticated: true })
+    const replaceSpy = vi.spyOn(router, 'replace')
+    await flushPromises()
+    expect(replaceSpy).toHaveBeenCalledWith('/FUNK4242')
+    fetchSpy.mockRestore()
+  })
+
+  it('sends the player home when the room does not exist any more', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(JSON.stringify({ detail: 'nope' }), { status: 404 }))
+    const { router } = await mountGame({ authenticated: true })
+    const replaceSpy = vi.spyOn(router, 'replace')
+    await flushPromises()
+    expect(replaceSpy).toHaveBeenCalledWith('/')
+    fetchSpy.mockRestore()
+  })
+
   it('room_updated socket event refreshes the roster (host handover mid-game)', async () => {
     const { pinia } = await mountGame({ authenticated: true, withRoom: true })
     setActivePinia(pinia)

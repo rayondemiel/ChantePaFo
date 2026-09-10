@@ -775,6 +775,60 @@ describe('BlindtestRound', () => {
     expect(rows[0].classes()).toContain('ranking-partial')
   })
 
+  it('shows the points earned so far next to each finder in the live ranking', async () => {
+    const { wrapper } = await setup({
+      phase: 'playing',
+      track: { preview_url: 'http://x/y.mp3', genre: 'pop' },
+    })
+    const call = socketMock.on.mock.calls.find((c) => c[0] === 'player_match')
+    const handler = call![1] as (d: unknown) => void
+    handler({ player_id: 'u2', time_ms: 3200, match_type: 'title', points: 893 })
+    await flushPromises()
+    const row = wrapper.findAll('.ranking-row').find((r) => r.text().includes('Bob'))
+    expect(row!.find('.ranking-points').text()).toBe('+893')
+  })
+
+  it('resumes the round timer from the server elapsed time (reload mid-round)', async () => {
+    const { wrapper } = await setup({
+      phase: 'playing',
+      extract_duration: 30,
+      // The server says the round has been running for 10s.
+      round_elapsed_ms: 10_000,
+      track: { preview_url: 'http://x/y.mp3', genre: 'pop' },
+    })
+    await flushPromises()
+    const countdown = wrapper.findComponent({ name: 'CircularCountdown' })
+    expect(countdown.props('elapsed')).toBe(10)
+    const audio = wrapper.find('audio').element as HTMLAudioElement
+    expect(audio.currentTime).toBeCloseTo(10, 0)
+  })
+
+  it('seeds the live ticker from round_matches when joining mid-round', async () => {
+    const { wrapper } = await setup({
+      phase: 'playing',
+      round_elapsed_ms: 8000,
+      round_matches: [
+        { player_id: 'u2', name: 'Bob', time_ms: 3200, match_type: 'title', points: 893 },
+      ],
+      track: { preview_url: 'http://x/y.mp3', genre: 'pop' },
+    })
+    await flushPromises()
+    const row = wrapper.findAll('.ranking-row').find((r) => r.text().includes('Bob'))
+    expect(row).toBeDefined()
+    expect(row!.find('.ranking-points').text()).toBe('+893')
+  })
+
+  it('ignores an implausible elapsed time and starts the timer from zero', async () => {
+    const { wrapper } = await setup({
+      phase: 'playing',
+      extract_duration: 30,
+      round_elapsed_ms: 999_999,
+      track: { preview_url: 'http://x/y.mp3', genre: 'pop' },
+    })
+    await flushPromises()
+    expect(wrapper.findComponent({ name: 'CircularCountdown' }).props('elapsed')).toBe(0)
+  })
+
   it('upgrades match status in live ranking when player sends bonus', async () => {
     const { wrapper } = await setup({
       phase: 'playing',

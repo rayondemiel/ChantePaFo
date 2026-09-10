@@ -3,6 +3,7 @@ from typing import Any
 import pytest
 
 from app.game.blindtest import BlindtestMode
+from app.game.scoring import calculate_round_scores
 
 
 class FakeTrackProvider:
@@ -84,6 +85,64 @@ async def test_blindtest_correct_answer() -> None:
     result = await mode.handle_event("answer", "p0", {"text": "thriller", "time_ms": 5000})
     assert result is not None
     assert result["title_match"] is True
+
+
+@pytest.mark.asyncio
+async def test_answer_result_carries_provisional_round_points() -> None:
+    """Scoring is per player and time-based, so the points earned by a match
+    are known immediately — expose them so the UI can show "+450" live."""
+    mode = await _started_mode()
+    await mode.handle_event("countdown_done", "p0", {})
+    wrong = await mode.handle_event("answer", "p0", {"text": "bananas", "time_ms": 5000})
+    assert wrong is not None
+    assert wrong["round_points"] == 0
+
+    title = await mode.handle_event("answer", "p0", {"text": "thriller", "time_ms": 6000})
+    assert title is not None
+    assert title["round_points"] == calculate_round_scores([title], 30_000)["p0"]
+    assert title["round_points"] > 0
+
+    both = await mode.handle_event("answer", "p0", {"text": "michael jackson", "time_ms": 9000})
+    assert both is not None
+    assert both["bonus"] is True
+    assert both["round_points"] > title["round_points"]
+    # Provisional points equal what the reveal will lock in for this player.
+    mode.advance_to_reveal()
+    assert mode.state["round_scores"]["p0"] == both["round_points"]
+
+
+@pytest.mark.asyncio
+async def test_state_exposes_round_elapsed_ms_while_playing(monkeypatch) -> None:
+    """round_started_at_ms is a monotonic server timestamp, meaningless to a
+    browser. A client that (re)joins mid-round needs the elapsed time so its
+    timer, waveform and audio can resume where everyone else is."""
+    fake = {"now_ms": 100_000}
+    monkeypatch.setattr("app.game.blindtest._now_ms", lambda: fake["now_ms"])
+    mode = await _started_mode()
+    assert "round_elapsed_ms" not in mode.get_state()
+    await mode.handle_event("countdown_done", "p0", {})
+    fake["now_ms"] = 107_500
+    assert mode.get_state()["round_elapsed_ms"] == 7500
+    mode.advance_to_reveal()
+    assert "round_elapsed_ms" not in mode.get_state()
+
+
+@pytest.mark.asyncio
+async def test_state_lists_current_round_matches_while_playing() -> None:
+    """Who found what so far (with their points) travels with the state so a
+    client that joins mid-round can rebuild the live ticker."""
+    mode = await _started_mode()
+    await mode.handle_event("countdown_done", "p0", {})
+    assert mode.get_state()["round_matches"] == []
+    await mode.handle_event("answer", "p1", {"text": "thriller", "time_ms": 4000})
+    matches = mode.get_state()["round_matches"]
+    assert len(matches) == 1
+    assert matches[0]["player_id"] == "p1"
+    assert matches[0]["match_type"] == "title"
+    assert matches[0]["points"] > 0
+    assert "text" not in matches[0]
+    mode.advance_to_reveal()
+    assert "round_matches" not in mode.get_state()
 
 
 @pytest.mark.asyncio

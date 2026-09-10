@@ -183,6 +183,14 @@ class BlindtestMode(GameMode):
         else:
             result["bonus_time_ms"] = 0
 
+        # Scoring only depends on this player's own match times, so the
+        # round points are final the moment a match lands — the reveal just
+        # publishes them. Exposing them lets clients show "+N" right away.
+        extract_duration_ms = int(self.state.get("extract_duration", 30)) * 1000
+        result["round_points"] = calculate_round_scores([result], extract_duration_ms).get(
+            player_id, 0
+        )
+
         self.round_answers[player_id] = result
         return result
 
@@ -285,7 +293,19 @@ class BlindtestMode(GameMode):
                 self.round_answers[p["id"]] = {**_EMPTY_ANSWER, "player_id": p["id"]}
 
     def get_state(self) -> dict[str, Any]:
-        return {**self.state, "total_scores": self.history["total_scores"]}
+        state: dict[str, Any] = {**self.state, "total_scores": self.history["total_scores"]}
+        # round_started_at_ms is monotonic (server-only); ship the elapsed
+        # time instead so a client joining mid-round can resume its timer.
+        started = state.get("round_started_at_ms")
+        if state.get("phase") == PHASE_PLAYING and isinstance(started, int):
+            state["round_elapsed_ms"] = max(0, _now_ms() - started)
+            # Public by construction (already broadcast as player_match):
+            # lets a late/reloaded client rebuild the live ticker.
+            state["round_matches"] = [
+                {**m, "points": int(self.round_answers[m["player_id"]].get("round_points", 0))}
+                for m in self._compute_all_matches()
+            ]
+        return state
 
     def _first_finder(
         self,

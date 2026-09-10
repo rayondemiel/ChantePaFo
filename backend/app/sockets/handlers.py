@@ -11,6 +11,7 @@ from app.auth.service import decode_token
 from app.database import async_session as session_factory
 from app.database import get_redis
 from app.game.blindtest import (
+    PHASE_COUNTDOWN,
     PHASE_FINISHED,
     PHASE_PLAYING,
     PHASE_PLAYING_REVEAL,
@@ -114,6 +115,16 @@ async def _finish_blindtest_game(code: str) -> None:
     await svc.set_status(code, "lobby")
     await sio.emit("ambiance_update", get_ambiance_for_moment("lobby"), room=code)
     logger.info("game finished room=%s", code)
+
+
+def _ambiance_for_current_phase(mode: BlindtestMode, state: dict[str, Any]) -> dict[str, Any]:
+    """What a client joining right now should glow like: the countdown moment
+    before the first note, the round's genre once the music plays."""
+    if state.get("phase") == PHASE_COUNTDOWN:
+        return get_ambiance_for_moment("countdown")
+    round_idx = int(state.get("current_round", 0))
+    genre = mode.tracks[round_idx].get("genre", "") if 0 <= round_idx < len(mode.tracks) else ""
+    return get_ambiance_for_genre(genre) if genre else get_ambiance_for_moment("countdown")
 
 
 async def _emit_round_ambiance(code: str, mode: BlindtestMode) -> None:
@@ -358,6 +369,17 @@ async def _handle_join_room(sid: str, data: object) -> None:
     logger.info("player joined room sid=%s room=%s user_id=%s", sid, payload.code, user_id)
     await sio.emit("room_updated", public_room(room), room=payload.code)
 
+    # Reconnecting into a running game (page reload): the client's store is
+    # empty, so replay the current state and the round's ambiance to this
+    # socket only — the room-wide broadcasts already happened.
+    game_session = _active_sessions.get(payload.code)
+    if game_session is not None:
+        state = game_session.get_state()
+        await sio.emit("game_state", state, to=sid)
+        mode = game_session.mode
+        if isinstance(mode, BlindtestMode):
+            await sio.emit("ambiance_update", _ambiance_for_current_phase(mode, state), to=sid)
+
 
 async def _handle_update_settings(sid: str, data: object) -> None:
     SOCKETIO_EVENTS_TOTAL.labels(event="update_settings").inc()
@@ -522,6 +544,7 @@ async def _emit_answer_feedback(
                 "player_id": user_id,
                 "time_ms": result.get("time_ms", 0),
                 "match_type": _match_type(result),
+                "points": int(result.get("round_points", 0)),
             },
             room=code,
         )
