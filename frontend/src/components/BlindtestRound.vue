@@ -1325,29 +1325,6 @@ onBeforeUnmount(() => {
 .finished-body--desktop .finished-side {
   grid-area: side;
   align-self: start;
-}
-
-.finished-body--desktop .finished-main {
-  grid-area: main;
-}
-
-.finished-side {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-md);
-}
-
-.finished-body--desktop .finished-main {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: clamp(var(--space-lg), 2vw, var(--space-xl));
-  align-items: center;
-}
-
-.finished-body--desktop .finished-side {
   width: 100%;
   position: sticky;
   top: var(--space-lg);
@@ -1367,6 +1344,23 @@ onBeforeUnmount(() => {
     0 20px 50px -24px rgba(var(--color-black-rgb), 0.7),
     0 0 40px -12px rgba(var(--color-accent-rgb), 0.2),
     inset 0 1px 0 rgba(var(--color-white-rgb), 0.05);
+}
+
+.finished-body--desktop .finished-main {
+  grid-area: main;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(var(--space-lg), 2vw, var(--space-xl));
+  align-items: center;
+}
+
+.finished-side {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
 }
 
 .finished-body--desktop .finished-side::-webkit-scrollbar {
