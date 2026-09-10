@@ -20,7 +20,7 @@ describe('VolumeControl', () => {
   it('exposes accessible labels', () => {
     const wrapper = mount(VolumeControl)
     const root = wrapper.find('.volume-control')
-    expect(root.attributes('role')).toBe('group')
+    expect(root.attributes('role')).toBe('toolbar')
     expect(root.attributes('aria-label')).toBeTruthy()
     const slider = wrapper.find('input[type="range"]')
     expect(slider.attributes('aria-label')).toBe('Volume musique')

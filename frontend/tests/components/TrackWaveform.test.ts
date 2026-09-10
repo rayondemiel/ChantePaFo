@@ -173,13 +173,12 @@ describe('TrackWaveform', () => {
     expect(wrapper.find('.markers-layer').exists()).toBe(false)
   })
 
-  it('has role=progressbar with correct aria attributes', () => {
+  it('exposes progress through a native progress element', () => {
     const wrapper = mountWaveform({ progress: 0.45 })
-    const root = wrapper.get('.track-waveform')
-    expect(root.attributes('role')).toBe('progressbar')
-    expect(root.attributes('aria-valuenow')).toBe('45')
-    expect(root.attributes('aria-valuemin')).toBe('0')
-    expect(root.attributes('aria-valuemax')).toBe('100')
+    const bar = wrapper.get('progress')
+    expect(bar.attributes('value')).toBe('45')
+    expect(bar.attributes('max')).toBe('100')
+    expect(wrapper.get('.track-waveform').attributes('role')).toBeUndefined()
   })
 
   it('applies critical class when stressLevel is critical', () => {

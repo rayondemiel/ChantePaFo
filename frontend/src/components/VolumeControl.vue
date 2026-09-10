@@ -1,5 +1,5 @@
 <template>
-  <div class="volume-control" role="group" aria-label="Contrôle du volume">
+  <div class="volume-control" role="toolbar" aria-label="Contrôle du volume">
     <button
       type="button"
       class="volume-mute"

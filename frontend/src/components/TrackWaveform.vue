@@ -1,12 +1,11 @@
 <template>
-  <div
-    class="track-waveform"
-    role="progressbar"
-    :aria-valuenow="Math.round(props.progress * 100)"
-    aria-valuemin="0"
-    aria-valuemax="100"
-    :class="{ 'waveform-critical': props.stressLevel === 'critical' }"
-  >
+  <div class="track-waveform" :class="{ 'waveform-critical': props.stressLevel === 'critical' }">
+    <progress
+      class="sr-only"
+      :value="Math.round(props.progress * 100)"
+      max="100"
+      aria-label="Progression de l'extrait"
+    />
     <svg class="waveform-bars" viewBox="0 0 400 48" preserveAspectRatio="none" aria-hidden="true">
       <defs>
         <linearGradient id="bar-gradient-filled" x1="0" y1="1" x2="0" y2="0">
@@ -56,7 +55,7 @@
         :class="`marker-${marker.match_type}`"
         :style="{ left: `${marker.left}%` }"
         :title="marker.name"
-        tabindex="0"
+        role="img"
         :aria-label="`${marker.name} - ${marker.match_type}`"
       >
         <span class="marker-line" :class="`marker-line-${marker.match_type}`"></span>

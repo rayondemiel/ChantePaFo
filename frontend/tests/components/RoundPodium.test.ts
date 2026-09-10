@@ -72,15 +72,15 @@ describe('RoundPodium', () => {
     expect(html).toContain(`--hue: ${getPlayerHue('u3')}`)
   })
 
-  it('has role=list and role=listitem on children', () => {
+  it('has role=list and renders three list items', () => {
     const wrapper = mount(RoundPodium, {
       props: {
         winners: [{ player_id: 'u1', name: 'Alice', time_ms: 1200 }],
       },
     })
     expect(wrapper.get('.podium').attributes('role')).toBe('list')
-    const items = wrapper.findAll('[role="listitem"]')
-    expect(items.length).toBe(3)
+    const items = wrapper.findAll('li')
+    expect(items).toHaveLength(3)
   })
 
   it('places the winner in the middle order (rank-1 is the 2nd child in DOM)', () => {

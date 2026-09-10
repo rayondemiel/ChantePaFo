@@ -20,7 +20,7 @@
       <div
         v-if="open"
         class="sound-sheet"
-        role="group"
+        role="toolbar"
         aria-label="Soundboard"
         data-test="sound-sheet"
       >

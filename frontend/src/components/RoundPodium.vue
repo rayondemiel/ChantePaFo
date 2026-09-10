@@ -7,7 +7,6 @@
       :class="[`rank-${slot.rank}`, { placeholder: !slot.winner }]"
       :style="slotStyle(slot)"
       :aria-label="slotLabel(slot)"
-      role="listitem"
     >
       <span class="emoji" aria-hidden="true">{{ slot.emoji }}</span>
       <span class="name">{{ slot.winner ? slot.winner.name : '—' }}</span>
@@ -26,31 +25,28 @@ const props = defineProps<{
   winners: Winner[]
 }>()
 
+type PodiumRank = 1 | 2 | 3
+
 interface PodiumSlot {
-  rank: 1 | 2 | 3
+  rank: PodiumRank
   order: number
   emoji: string
   delayMs: number
   winner: Winner | null
 }
 
-function slotMeta(rank: 1 | 2 | 3): { emoji: string; delayMs: number; order: number } {
+function slotMeta(rank: PodiumRank): { emoji: string; delayMs: number; order: number } {
   if (rank === 1) return { emoji: '🥇', delayMs: 0, order: 2 }
   if (rank === 2) return { emoji: '🥈', delayMs: 120, order: 1 }
   return { emoji: '🥉', delayMs: 240, order: 3 }
 }
 
 const slots = computed<PodiumSlot[]>(() => {
-  const ranks: Array<1 | 2 | 3> = [1, 2, 3]
+  const ranks: PodiumRank[] = [1, 2, 3]
   return ranks
     .map((rank) => {
       const meta = slotMeta(rank)
-      const winner =
-        rank === 1
-          ? (props.winners[0] ?? null)
-          : rank === 2
-            ? (props.winners[1] ?? null)
-            : (props.winners[2] ?? null)
+      const winner = props.winners[rank - 1] ?? null
       return { rank, order: meta.order, emoji: meta.emoji, delayMs: meta.delayMs, winner }
     })
     .sort((a, b) => a.order - b.order)

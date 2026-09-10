@@ -1,6 +1,8 @@
 <template>
   <div class="answer-input-wrap">
+    <label class="sr-only" :for="inputId">{{ placeholder }}</label>
     <input
+      :id="inputId"
       ref="inputRef"
       v-model="text"
       type="text"
@@ -20,7 +22,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, useId } from 'vue'
 import type { FuzzyResult } from '../types'
 
 interface Feedback {
@@ -43,6 +45,7 @@ const emit = defineEmits<{
   submit: [text: string]
 }>()
 
+const inputId = `answer-input-${useId()}`
 const inputRef = ref<HTMLInputElement | null>(null)
 const text = ref('')
 const persistentFeedback = ref<Feedback | null>(null)
