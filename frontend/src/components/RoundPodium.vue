@@ -3,7 +3,7 @@
     <span class="podium-empty-glyph" aria-hidden="true">🦗</span>
     Personne n'a trouvé titre + artiste
   </p>
-  <ol v-else class="podium" role="list" aria-label="Top 3 du round">
+  <ol v-else class="podium" aria-label="Top 3 du round">
     <li
       v-for="slot in slots"
       :key="slot.rank"

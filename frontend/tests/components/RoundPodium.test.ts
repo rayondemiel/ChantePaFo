@@ -72,13 +72,16 @@ describe('RoundPodium', () => {
     expect(html).toContain(`--hue: ${getPlayerHue('u3')}`)
   })
 
-  it('has role=list and renders three list items', () => {
+  it('is a labelled ol with three list items', () => {
     const wrapper = mount(RoundPodium, {
       props: {
         winners: [{ player_id: 'u1', name: 'Alice', time_ms: 1200 }],
       },
     })
-    expect(wrapper.get('.podium').attributes('role')).toBe('list')
+    const podium = wrapper.get('.podium')
+    expect(podium.element.tagName).toBe('OL')
+    expect(podium.attributes('role')).toBeUndefined()
+    expect(podium.attributes('aria-label')).toBe('Top 3 du round')
     const items = wrapper.findAll('li')
     expect(items).toHaveLength(3)
   })
